@@ -28,7 +28,7 @@
 <span class="sourceLineNo">020</span>import java.io.Closeable;<a name="line.20"></a>
 <span class="sourceLineNo">021</span>import java.io.FileNotFoundException;<a name="line.21"></a>
 <span class="sourceLineNo">022</span>import java.io.IOException;<a name="line.22"></a>
-<span class="sourceLineNo">023</span>import java.lang.ref.PhantomReference;<a name="line.23"></a>
+<span class="sourceLineNo">023</span>import java.lang.ref.WeakReference;<a name="line.23"></a>
 <span class="sourceLineNo">024</span>import java.lang.ref.ReferenceQueue;<a name="line.24"></a>
 <span class="sourceLineNo">025</span>import java.net.URI;<a name="line.25"></a>
 <span class="sourceLineNo">026</span>import java.net.URISyntaxException;<a name="line.26"></a>
@@ -3141,7 +3141,7 @@
 <span class="sourceLineNo">3133</span><a name="line.3133"></a>
 <span class="sourceLineNo">3134</span>    /**<a name="line.3134"></a>
 <span class="sourceLineNo">3135</span>     * Set of all thread-local data areas.  Protected by the Statistics lock.<a name="line.3135"></a>
-<span class="sourceLineNo">3136</span>     * The references to the statistics data are kept using phantom references<a name="line.3136"></a>
+<span class="sourceLineNo">3136</span>     * The references to the statistics data are kept using weak references<a name="line.3136"></a>
 <span class="sourceLineNo">3137</span>     * to the associated threads. Proper clean-up is performed by the cleaner<a name="line.3137"></a>
 <span class="sourceLineNo">3138</span>     * thread when the threads are garbage collected.<a name="line.3138"></a>
 <span class="sourceLineNo">3139</span>     */<a name="line.3139"></a>
@@ -3194,11 +3194,11 @@
 <span class="sourceLineNo">3186</span>    }<a name="line.3186"></a>
 <span class="sourceLineNo">3187</span><a name="line.3187"></a>
 <span class="sourceLineNo">3188</span>    /**<a name="line.3188"></a>
-<span class="sourceLineNo">3189</span>     * A phantom reference to a thread that also includes the data associated<a name="line.3189"></a>
+<span class="sourceLineNo">3189</span>     * A weak reference to a thread that also includes the data associated<a name="line.3189"></a>
 <span class="sourceLineNo">3190</span>     * with that thread. On the thread being garbage collected, it is enqueued<a name="line.3190"></a>
 <span class="sourceLineNo">3191</span>     * to the reference queue for clean-up.<a name="line.3191"></a>
 <span class="sourceLineNo">3192</span>     */<a name="line.3192"></a>
-<span class="sourceLineNo">3193</span>    private class StatisticsDataReference extends PhantomReference&lt;Thread&gt; {<a name="line.3193"></a>
+<span class="sourceLineNo">3193</span>    private class StatisticsDataReference extends WeakReference&lt;Thread&gt; {<a name="line.3193"></a>
 <span class="sourceLineNo">3194</span>      private final StatisticsData data;<a name="line.3194"></a>
 <span class="sourceLineNo">3195</span><a name="line.3195"></a>
 <span class="sourceLineNo">3196</span>      public StatisticsDataReference(StatisticsData data, Thread thread) {<a name="line.3196"></a>
