@@ -7,5 +7,5 @@ https://bwtakacy.github.io/hadoop-project/index.html
 ## How to build
 
 ```
-mvn site site:stage -DstagingDirectory=/hadoop-site
+mvn clean site -Preleasedocs; mvn site:stage -DstagingDirectory=/tmp/hadoop-site
 ```
