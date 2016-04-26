@@ -693,8 +693,8 @@
 <span class="sourceLineNo">685</span>      return new BlockLocation[0];<a name="line.685"></a>
 <span class="sourceLineNo">686</span><a name="line.686"></a>
 <span class="sourceLineNo">687</span>    }<a name="line.687"></a>
-<span class="sourceLineNo">688</span>    String[] name = { "localhost:50010" };<a name="line.688"></a>
-<span class="sourceLineNo">689</span>    String[] host = { "localhost" };<a name="line.689"></a>
+<span class="sourceLineNo">688</span>    String[] name = {"localhost:9866"};<a name="line.688"></a>
+<span class="sourceLineNo">689</span>    String[] host = {"localhost"};<a name="line.689"></a>
 <span class="sourceLineNo">690</span>    return new BlockLocation[] {<a name="line.690"></a>
 <span class="sourceLineNo">691</span>      new BlockLocation(name, host, 0, file.getLen()) };<a name="line.691"></a>
 <span class="sourceLineNo">692</span>  }<a name="line.692"></a>
@@ -2671,7 +2671,7 @@
 <span class="sourceLineNo">2663</span>   * @param src file or directory path.<a name="line.2663"></a>
 <span class="sourceLineNo">2664</span>   * @throws IOException<a name="line.2664"></a>
 <span class="sourceLineNo">2665</span>   */<a name="line.2665"></a>
-<span class="sourceLineNo">2666</span>  public void unsetStoragePolicy(Path src) throws IOException {<a name="line.2666"></a>
+<span class="sourceLineNo">2666</span>  public void unsetStoragePolicy(final Path src) throws IOException {<a name="line.2666"></a>
 <span class="sourceLineNo">2667</span>    throw new UnsupportedOperationException(getClass().getSimpleName()<a name="line.2667"></a>
 <span class="sourceLineNo">2668</span>        + " doesn't support unsetStoragePolicy");<a name="line.2668"></a>
 <span class="sourceLineNo">2669</span>  }<a name="line.2669"></a>
