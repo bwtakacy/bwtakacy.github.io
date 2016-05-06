@@ -321,6 +321,11 @@
   <name>dfs.datanode.du.reserved</name>
   <value>0</value>
   <description>Reserved space in bytes per volume. Always leave this much space free for non dfs use.
+      Specific storage type based reservation is also supported. The property can be followed with
+      corresponding storage types ([ssd]/[disk]/[archive]/[ram_disk]) for cluster with heterogeneous storage.
+      For example, reserved space for RAM_DISK storage can be configured using property
+      'dfs.datanode.du.reserved.ram_disk'. If specific storage type reservation is not configured
+      then dfs.datanode.du.reserved will be used.
   </description>
 </property>
 
@@ -856,7 +861,7 @@
 
 <property>
   <name>dfs.datanode.balance.bandwidthPerSec</name>
-  <value>1048576</value>
+  <value>10m</value>
   <description>
         Specifies the maximum amount of bandwidth that each datanode
         can utilize for the balancing purpose in term of
@@ -3409,7 +3414,7 @@
 
 <property>
   <name>dfs.datanode.balance.max.concurrent.moves</name>
-  <value>5</value>
+  <value>50</value>
   <description>
     Maximum number of threads for Datanode balancer pending moves.  This
     value is reconfigurable via the "dfsadmin -reconfig" command.
@@ -3790,10 +3795,10 @@
 </property>
 
 <property>
-  <name>dfs.namenode.replication.pending.timeout-sec</name>
+  <name>dfs.namenode.reconstruction.pending.timeout-sec</name>
   <value>-1</value>
   <description>
-    Timeout in seconds for block replication.  If this value is 0 or less,
+    Timeout in seconds for block reconstruction.  If this value is 0 or less,
     then it will default to 5 minutes.
   </description>
 </property>
