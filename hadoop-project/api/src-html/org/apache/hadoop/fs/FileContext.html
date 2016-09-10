@@ -54,681 +54,681 @@
 <span class="sourceLineNo">046</span>import org.apache.hadoop.fs.permission.AclEntry;<a name="line.46"></a>
 <span class="sourceLineNo">047</span>import org.apache.hadoop.fs.permission.AclStatus;<a name="line.47"></a>
 <span class="sourceLineNo">048</span>import org.apache.hadoop.fs.permission.FsAction;<a name="line.48"></a>
-<span class="sourceLineNo">049</span>import org.apache.hadoop.fs.permission.FsPermission;<a name="line.49"></a>
-<span class="sourceLineNo">050</span>import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.FS_DEFAULT_NAME_KEY;<a name="line.50"></a>
-<span class="sourceLineNo">051</span>import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.FS_DEFAULT_NAME_DEFAULT;<a name="line.51"></a>
-<span class="sourceLineNo">052</span><a name="line.52"></a>
-<span class="sourceLineNo">053</span>import org.apache.hadoop.io.IOUtils;<a name="line.53"></a>
-<span class="sourceLineNo">054</span>import org.apache.hadoop.ipc.RpcClientException;<a name="line.54"></a>
-<span class="sourceLineNo">055</span>import org.apache.hadoop.ipc.RpcServerException;<a name="line.55"></a>
-<span class="sourceLineNo">056</span>import org.apache.hadoop.ipc.UnexpectedServerException;<a name="line.56"></a>
-<span class="sourceLineNo">057</span>import org.apache.hadoop.fs.InvalidPathException;<a name="line.57"></a>
-<span class="sourceLineNo">058</span>import org.apache.hadoop.security.AccessControlException;<a name="line.58"></a>
-<span class="sourceLineNo">059</span>import org.apache.hadoop.security.UserGroupInformation;<a name="line.59"></a>
-<span class="sourceLineNo">060</span>import org.apache.hadoop.security.token.Token;<a name="line.60"></a>
-<span class="sourceLineNo">061</span>import org.apache.hadoop.util.ShutdownHookManager;<a name="line.61"></a>
-<span class="sourceLineNo">062</span><a name="line.62"></a>
-<span class="sourceLineNo">063</span>import com.google.common.base.Preconditions;<a name="line.63"></a>
-<span class="sourceLineNo">064</span>import org.apache.htrace.core.Tracer;<a name="line.64"></a>
-<span class="sourceLineNo">065</span><a name="line.65"></a>
-<span class="sourceLineNo">066</span>/**<a name="line.66"></a>
-<span class="sourceLineNo">067</span> * The FileContext class provides an interface for users of the Hadoop<a name="line.67"></a>
-<span class="sourceLineNo">068</span> * file system. It exposes a number of file system operations, e.g. create,<a name="line.68"></a>
-<span class="sourceLineNo">069</span> * open, list.<a name="line.69"></a>
-<span class="sourceLineNo">070</span> * <a name="line.70"></a>
-<span class="sourceLineNo">071</span> * &lt;h2&gt;Path Names&lt;/h2&gt;<a name="line.71"></a>
-<span class="sourceLineNo">072</span> * <a name="line.72"></a>
-<span class="sourceLineNo">073</span> * The Hadoop file system supports a URI namespace and URI names. This enables<a name="line.73"></a>
-<span class="sourceLineNo">074</span> * multiple types of file systems to be referenced using fully-qualified URIs.<a name="line.74"></a>
-<span class="sourceLineNo">075</span> * Two common Hadoop file system implementations are<a name="line.75"></a>
-<span class="sourceLineNo">076</span> * &lt;ul&gt;<a name="line.76"></a>
-<span class="sourceLineNo">077</span> * &lt;li&gt;the local file system: file:///path<a name="line.77"></a>
-<span class="sourceLineNo">078</span> * &lt;li&gt;the HDFS file system: hdfs://nnAddress:nnPort/path<a name="line.78"></a>
-<span class="sourceLineNo">079</span> * &lt;/ul&gt;<a name="line.79"></a>
-<span class="sourceLineNo">080</span> * <a name="line.80"></a>
-<span class="sourceLineNo">081</span> * The Hadoop file system also supports additional naming schemes besides URIs.<a name="line.81"></a>
-<span class="sourceLineNo">082</span> * Hadoop has the concept of a &lt;i&gt;default file system&lt;/i&gt;, which implies a<a name="line.82"></a>
-<span class="sourceLineNo">083</span> * default URI scheme and authority. This enables &lt;i&gt;slash-relative names&lt;/i&gt;<a name="line.83"></a>
-<span class="sourceLineNo">084</span> * relative to the default FS, which are more convenient for users and<a name="line.84"></a>
-<span class="sourceLineNo">085</span> * application writers. The default FS is typically set by the user's<a name="line.85"></a>
-<span class="sourceLineNo">086</span> * environment, though it can also be manually specified.<a name="line.86"></a>
-<span class="sourceLineNo">087</span> * &lt;p&gt;<a name="line.87"></a>
-<span class="sourceLineNo">088</span> * <a name="line.88"></a>
-<span class="sourceLineNo">089</span> * Hadoop also supports &lt;i&gt;working-directory-relative&lt;/i&gt; names, which are paths<a name="line.89"></a>
-<span class="sourceLineNo">090</span> * relative to the current working directory (similar to Unix). The working<a name="line.90"></a>
-<span class="sourceLineNo">091</span> * directory can be in a different file system than the default FS.<a name="line.91"></a>
-<span class="sourceLineNo">092</span> * &lt;p&gt;<a name="line.92"></a>
-<span class="sourceLineNo">093</span> * Thus, Hadoop path names can be specified as one of the following:<a name="line.93"></a>
-<span class="sourceLineNo">094</span> * &lt;ul&gt;<a name="line.94"></a>
-<span class="sourceLineNo">095</span> * &lt;li&gt;a fully-qualified URI: scheme://authority/path (e.g.<a name="line.95"></a>
-<span class="sourceLineNo">096</span> * hdfs://nnAddress:nnPort/foo/bar)<a name="line.96"></a>
-<span class="sourceLineNo">097</span> * &lt;li&gt;a slash-relative name: path relative to the default file system (e.g.<a name="line.97"></a>
-<span class="sourceLineNo">098</span> * /foo/bar)<a name="line.98"></a>
-<span class="sourceLineNo">099</span> * &lt;li&gt;a working-directory-relative name: path relative to the working dir (e.g.<a name="line.99"></a>
-<span class="sourceLineNo">100</span> * foo/bar)<a name="line.100"></a>
-<span class="sourceLineNo">101</span> * &lt;/ul&gt;<a name="line.101"></a>
-<span class="sourceLineNo">102</span> *  Relative paths with scheme (scheme:foo/bar) are illegal.<a name="line.102"></a>
-<span class="sourceLineNo">103</span> *  <a name="line.103"></a>
-<span class="sourceLineNo">104</span> * &lt;h2&gt;Role of FileContext and Configuration Defaults&lt;/h2&gt;<a name="line.104"></a>
-<span class="sourceLineNo">105</span> *<a name="line.105"></a>
-<span class="sourceLineNo">106</span> * The FileContext is the analogue of per-process file-related state in Unix. It<a name="line.106"></a>
-<span class="sourceLineNo">107</span> * contains two properties:<a name="line.107"></a>
-<span class="sourceLineNo">108</span> * <a name="line.108"></a>
-<span class="sourceLineNo">109</span> * &lt;ul&gt;<a name="line.109"></a>
-<span class="sourceLineNo">110</span> * &lt;li&gt;the default file system (for resolving slash-relative names)<a name="line.110"></a>
-<span class="sourceLineNo">111</span> * &lt;li&gt;the umask (for file permissions)<a name="line.111"></a>
-<span class="sourceLineNo">112</span> * &lt;/ul&gt;<a name="line.112"></a>
-<span class="sourceLineNo">113</span> * In general, these properties are obtained from the default configuration file<a name="line.113"></a>
-<span class="sourceLineNo">114</span> * in the user's environment (see {@link Configuration}).<a name="line.114"></a>
-<span class="sourceLineNo">115</span> * <a name="line.115"></a>
-<span class="sourceLineNo">116</span> * Further file system properties are specified on the server-side. File system<a name="line.116"></a>
-<span class="sourceLineNo">117</span> * operations default to using these server-side defaults unless otherwise<a name="line.117"></a>
-<span class="sourceLineNo">118</span> * specified.<a name="line.118"></a>
-<span class="sourceLineNo">119</span> * &lt;p&gt;<a name="line.119"></a>
-<span class="sourceLineNo">120</span> * The file system related server-side defaults are:<a name="line.120"></a>
-<span class="sourceLineNo">121</span> *  &lt;ul&gt;<a name="line.121"></a>
-<span class="sourceLineNo">122</span> *  &lt;li&gt; the home directory (default is "/user/userName")<a name="line.122"></a>
-<span class="sourceLineNo">123</span> *  &lt;li&gt; the initial wd (only for local fs)<a name="line.123"></a>
-<span class="sourceLineNo">124</span> *  &lt;li&gt; replication factor<a name="line.124"></a>
-<span class="sourceLineNo">125</span> *  &lt;li&gt; block size<a name="line.125"></a>
-<span class="sourceLineNo">126</span> *  &lt;li&gt; buffer size<a name="line.126"></a>
-<span class="sourceLineNo">127</span> *  &lt;li&gt; encryptDataTransfer <a name="line.127"></a>
-<span class="sourceLineNo">128</span> *  &lt;li&gt; checksum option. (checksumType and  bytesPerChecksum)<a name="line.128"></a>
-<span class="sourceLineNo">129</span> *  &lt;/ul&gt;<a name="line.129"></a>
-<span class="sourceLineNo">130</span> *<a name="line.130"></a>
-<span class="sourceLineNo">131</span> * &lt;h2&gt;Example Usage&lt;/h2&gt;<a name="line.131"></a>
-<span class="sourceLineNo">132</span> *<a name="line.132"></a>
-<span class="sourceLineNo">133</span> * Example 1: use the default config read from the $HADOOP_CONFIG/core.xml.<a name="line.133"></a>
-<span class="sourceLineNo">134</span> *   Unspecified values come from core-defaults.xml in the release jar.<a name="line.134"></a>
-<span class="sourceLineNo">135</span> *  &lt;ul&gt;  <a name="line.135"></a>
-<span class="sourceLineNo">136</span> *  &lt;li&gt; myFContext = FileContext.getFileContext(); // uses the default config<a name="line.136"></a>
-<span class="sourceLineNo">137</span> *                                                // which has your default FS <a name="line.137"></a>
-<span class="sourceLineNo">138</span> *  &lt;li&gt;  myFContext.create(path, ...);<a name="line.138"></a>
-<span class="sourceLineNo">139</span> *  &lt;li&gt;  myFContext.setWorkingDir(path);<a name="line.139"></a>
-<span class="sourceLineNo">140</span> *  &lt;li&gt;  myFContext.open (path, ...);  <a name="line.140"></a>
-<span class="sourceLineNo">141</span> *  &lt;li&gt;...<a name="line.141"></a>
-<span class="sourceLineNo">142</span> *  &lt;/ul&gt;  <a name="line.142"></a>
-<span class="sourceLineNo">143</span> * Example 2: Get a FileContext with a specific URI as the default FS<a name="line.143"></a>
-<span class="sourceLineNo">144</span> *  &lt;ul&gt;  <a name="line.144"></a>
-<span class="sourceLineNo">145</span> *  &lt;li&gt; myFContext = FileContext.getFileContext(URI);<a name="line.145"></a>
-<span class="sourceLineNo">146</span> *  &lt;li&gt; myFContext.create(path, ...);<a name="line.146"></a>
-<span class="sourceLineNo">147</span> *  &lt;li&gt;...<a name="line.147"></a>
-<span class="sourceLineNo">148</span> * &lt;/ul&gt;<a name="line.148"></a>
-<span class="sourceLineNo">149</span> * Example 3: FileContext with local file system as the default<a name="line.149"></a>
-<span class="sourceLineNo">150</span> *  &lt;ul&gt; <a name="line.150"></a>
-<span class="sourceLineNo">151</span> *  &lt;li&gt; myFContext = FileContext.getLocalFSFileContext();<a name="line.151"></a>
-<span class="sourceLineNo">152</span> *  &lt;li&gt; myFContext.create(path, ...);<a name="line.152"></a>
-<span class="sourceLineNo">153</span> *  &lt;li&gt; ...<a name="line.153"></a>
-<span class="sourceLineNo">154</span> *  &lt;/ul&gt; <a name="line.154"></a>
-<span class="sourceLineNo">155</span> * Example 4: Use a specific config, ignoring $HADOOP_CONFIG<a name="line.155"></a>
-<span class="sourceLineNo">156</span> *  Generally you should not need use a config unless you are doing<a name="line.156"></a>
-<span class="sourceLineNo">157</span> *   &lt;ul&gt; <a name="line.157"></a>
-<span class="sourceLineNo">158</span> *   &lt;li&gt; configX = someConfigSomeOnePassedToYou;<a name="line.158"></a>
-<span class="sourceLineNo">159</span> *   &lt;li&gt; myFContext = getFileContext(configX); // configX is not changed,<a name="line.159"></a>
-<span class="sourceLineNo">160</span> *                                              // is passed down <a name="line.160"></a>
-<span class="sourceLineNo">161</span> *   &lt;li&gt; myFContext.create(path, ...);<a name="line.161"></a>
-<span class="sourceLineNo">162</span> *   &lt;li&gt;...<a name="line.162"></a>
-<span class="sourceLineNo">163</span> *  &lt;/ul&gt;                                          <a name="line.163"></a>
-<span class="sourceLineNo">164</span> *    <a name="line.164"></a>
-<span class="sourceLineNo">165</span> */<a name="line.165"></a>
-<span class="sourceLineNo">166</span><a name="line.166"></a>
-<span class="sourceLineNo">167</span>@InterfaceAudience.Public<a name="line.167"></a>
-<span class="sourceLineNo">168</span>@InterfaceStability.Stable<a name="line.168"></a>
-<span class="sourceLineNo">169</span>public class FileContext {<a name="line.169"></a>
-<span class="sourceLineNo">170</span>  <a name="line.170"></a>
-<span class="sourceLineNo">171</span>  public static final Log LOG = LogFactory.getLog(FileContext.class);<a name="line.171"></a>
-<span class="sourceLineNo">172</span>  /**<a name="line.172"></a>
-<span class="sourceLineNo">173</span>   * Default permission for directory and symlink<a name="line.173"></a>
-<span class="sourceLineNo">174</span>   * In previous versions, this default permission was also used to<a name="line.174"></a>
-<span class="sourceLineNo">175</span>   * create files, so files created end up with ugo+x permission.<a name="line.175"></a>
-<span class="sourceLineNo">176</span>   * See HADOOP-9155 for detail. <a name="line.176"></a>
-<span class="sourceLineNo">177</span>   * Two new constants are added to solve this, please use <a name="line.177"></a>
-<span class="sourceLineNo">178</span>   * {@link FileContext#DIR_DEFAULT_PERM} for directory, and use<a name="line.178"></a>
-<span class="sourceLineNo">179</span>   * {@link FileContext#FILE_DEFAULT_PERM} for file.<a name="line.179"></a>
-<span class="sourceLineNo">180</span>   * This constant is kept for compatibility.<a name="line.180"></a>
-<span class="sourceLineNo">181</span>   */<a name="line.181"></a>
-<span class="sourceLineNo">182</span>  public static final FsPermission DEFAULT_PERM = FsPermission.getDefault();<a name="line.182"></a>
-<span class="sourceLineNo">183</span>  /**<a name="line.183"></a>
-<span class="sourceLineNo">184</span>   * Default permission for directory<a name="line.184"></a>
-<span class="sourceLineNo">185</span>   */<a name="line.185"></a>
-<span class="sourceLineNo">186</span>  public static final FsPermission DIR_DEFAULT_PERM = FsPermission.getDirDefault();<a name="line.186"></a>
-<span class="sourceLineNo">187</span>  /**<a name="line.187"></a>
-<span class="sourceLineNo">188</span>   * Default permission for file<a name="line.188"></a>
-<span class="sourceLineNo">189</span>   */<a name="line.189"></a>
-<span class="sourceLineNo">190</span>  public static final FsPermission FILE_DEFAULT_PERM = FsPermission.getFileDefault();<a name="line.190"></a>
-<span class="sourceLineNo">191</span><a name="line.191"></a>
-<span class="sourceLineNo">192</span>  /**<a name="line.192"></a>
-<span class="sourceLineNo">193</span>   * Priority of the FileContext shutdown hook.<a name="line.193"></a>
-<span class="sourceLineNo">194</span>   */<a name="line.194"></a>
-<span class="sourceLineNo">195</span>  public static final int SHUTDOWN_HOOK_PRIORITY = 20;<a name="line.195"></a>
-<span class="sourceLineNo">196</span><a name="line.196"></a>
-<span class="sourceLineNo">197</span>  /**<a name="line.197"></a>
-<span class="sourceLineNo">198</span>   * List of files that should be deleted on JVM shutdown.<a name="line.198"></a>
-<span class="sourceLineNo">199</span>   */<a name="line.199"></a>
-<span class="sourceLineNo">200</span>  static final Map&lt;FileContext, Set&lt;Path&gt;&gt; DELETE_ON_EXIT = <a name="line.200"></a>
-<span class="sourceLineNo">201</span>    new IdentityHashMap&lt;FileContext, Set&lt;Path&gt;&gt;();<a name="line.201"></a>
-<span class="sourceLineNo">202</span><a name="line.202"></a>
-<span class="sourceLineNo">203</span>  /** JVM shutdown hook thread. */<a name="line.203"></a>
-<span class="sourceLineNo">204</span>  static final FileContextFinalizer FINALIZER = <a name="line.204"></a>
-<span class="sourceLineNo">205</span>    new FileContextFinalizer();<a name="line.205"></a>
-<span class="sourceLineNo">206</span>  <a name="line.206"></a>
-<span class="sourceLineNo">207</span>  private static final PathFilter DEFAULT_FILTER = new PathFilter() {<a name="line.207"></a>
-<span class="sourceLineNo">208</span>    @Override<a name="line.208"></a>
-<span class="sourceLineNo">209</span>    public boolean accept(final Path file) {<a name="line.209"></a>
-<span class="sourceLineNo">210</span>      return true;<a name="line.210"></a>
-<span class="sourceLineNo">211</span>    }<a name="line.211"></a>
-<span class="sourceLineNo">212</span>  };<a name="line.212"></a>
-<span class="sourceLineNo">213</span>  <a name="line.213"></a>
-<span class="sourceLineNo">214</span>  /**<a name="line.214"></a>
-<span class="sourceLineNo">215</span>   * The FileContext is defined by.<a name="line.215"></a>
-<span class="sourceLineNo">216</span>   *  1) defaultFS (slash)<a name="line.216"></a>
-<span class="sourceLineNo">217</span>   *  2) wd<a name="line.217"></a>
-<span class="sourceLineNo">218</span>   *  3) umask<a name="line.218"></a>
-<span class="sourceLineNo">219</span>   */   <a name="line.219"></a>
-<span class="sourceLineNo">220</span>  private final AbstractFileSystem defaultFS; //default FS for this FileContext.<a name="line.220"></a>
-<span class="sourceLineNo">221</span>  private Path workingDir;          // Fully qualified<a name="line.221"></a>
-<span class="sourceLineNo">222</span>  private FsPermission umask;<a name="line.222"></a>
+<span class="sourceLineNo">049</span>import org.apache.hadoop.fs.permission.FsCreateModes;<a name="line.49"></a>
+<span class="sourceLineNo">050</span>import org.apache.hadoop.fs.permission.FsPermission;<a name="line.50"></a>
+<span class="sourceLineNo">051</span>import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.FS_DEFAULT_NAME_KEY;<a name="line.51"></a>
+<span class="sourceLineNo">052</span>import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.FS_DEFAULT_NAME_DEFAULT;<a name="line.52"></a>
+<span class="sourceLineNo">053</span><a name="line.53"></a>
+<span class="sourceLineNo">054</span>import org.apache.hadoop.io.IOUtils;<a name="line.54"></a>
+<span class="sourceLineNo">055</span>import org.apache.hadoop.ipc.RpcClientException;<a name="line.55"></a>
+<span class="sourceLineNo">056</span>import org.apache.hadoop.ipc.RpcServerException;<a name="line.56"></a>
+<span class="sourceLineNo">057</span>import org.apache.hadoop.ipc.UnexpectedServerException;<a name="line.57"></a>
+<span class="sourceLineNo">058</span>import org.apache.hadoop.fs.InvalidPathException;<a name="line.58"></a>
+<span class="sourceLineNo">059</span>import org.apache.hadoop.security.AccessControlException;<a name="line.59"></a>
+<span class="sourceLineNo">060</span>import org.apache.hadoop.security.UserGroupInformation;<a name="line.60"></a>
+<span class="sourceLineNo">061</span>import org.apache.hadoop.security.token.Token;<a name="line.61"></a>
+<span class="sourceLineNo">062</span>import org.apache.hadoop.util.ShutdownHookManager;<a name="line.62"></a>
+<span class="sourceLineNo">063</span><a name="line.63"></a>
+<span class="sourceLineNo">064</span>import com.google.common.base.Preconditions;<a name="line.64"></a>
+<span class="sourceLineNo">065</span>import org.apache.htrace.core.Tracer;<a name="line.65"></a>
+<span class="sourceLineNo">066</span><a name="line.66"></a>
+<span class="sourceLineNo">067</span>/**<a name="line.67"></a>
+<span class="sourceLineNo">068</span> * The FileContext class provides an interface for users of the Hadoop<a name="line.68"></a>
+<span class="sourceLineNo">069</span> * file system. It exposes a number of file system operations, e.g. create,<a name="line.69"></a>
+<span class="sourceLineNo">070</span> * open, list.<a name="line.70"></a>
+<span class="sourceLineNo">071</span> * <a name="line.71"></a>
+<span class="sourceLineNo">072</span> * &lt;h2&gt;Path Names&lt;/h2&gt;<a name="line.72"></a>
+<span class="sourceLineNo">073</span> * <a name="line.73"></a>
+<span class="sourceLineNo">074</span> * The Hadoop file system supports a URI namespace and URI names. This enables<a name="line.74"></a>
+<span class="sourceLineNo">075</span> * multiple types of file systems to be referenced using fully-qualified URIs.<a name="line.75"></a>
+<span class="sourceLineNo">076</span> * Two common Hadoop file system implementations are<a name="line.76"></a>
+<span class="sourceLineNo">077</span> * &lt;ul&gt;<a name="line.77"></a>
+<span class="sourceLineNo">078</span> * &lt;li&gt;the local file system: file:///path<a name="line.78"></a>
+<span class="sourceLineNo">079</span> * &lt;li&gt;the HDFS file system: hdfs://nnAddress:nnPort/path<a name="line.79"></a>
+<span class="sourceLineNo">080</span> * &lt;/ul&gt;<a name="line.80"></a>
+<span class="sourceLineNo">081</span> * <a name="line.81"></a>
+<span class="sourceLineNo">082</span> * The Hadoop file system also supports additional naming schemes besides URIs.<a name="line.82"></a>
+<span class="sourceLineNo">083</span> * Hadoop has the concept of a &lt;i&gt;default file system&lt;/i&gt;, which implies a<a name="line.83"></a>
+<span class="sourceLineNo">084</span> * default URI scheme and authority. This enables &lt;i&gt;slash-relative names&lt;/i&gt;<a name="line.84"></a>
+<span class="sourceLineNo">085</span> * relative to the default FS, which are more convenient for users and<a name="line.85"></a>
+<span class="sourceLineNo">086</span> * application writers. The default FS is typically set by the user's<a name="line.86"></a>
+<span class="sourceLineNo">087</span> * environment, though it can also be manually specified.<a name="line.87"></a>
+<span class="sourceLineNo">088</span> * &lt;p&gt;<a name="line.88"></a>
+<span class="sourceLineNo">089</span> * <a name="line.89"></a>
+<span class="sourceLineNo">090</span> * Hadoop also supports &lt;i&gt;working-directory-relative&lt;/i&gt; names, which are paths<a name="line.90"></a>
+<span class="sourceLineNo">091</span> * relative to the current working directory (similar to Unix). The working<a name="line.91"></a>
+<span class="sourceLineNo">092</span> * directory can be in a different file system than the default FS.<a name="line.92"></a>
+<span class="sourceLineNo">093</span> * &lt;p&gt;<a name="line.93"></a>
+<span class="sourceLineNo">094</span> * Thus, Hadoop path names can be specified as one of the following:<a name="line.94"></a>
+<span class="sourceLineNo">095</span> * &lt;ul&gt;<a name="line.95"></a>
+<span class="sourceLineNo">096</span> * &lt;li&gt;a fully-qualified URI: scheme://authority/path (e.g.<a name="line.96"></a>
+<span class="sourceLineNo">097</span> * hdfs://nnAddress:nnPort/foo/bar)<a name="line.97"></a>
+<span class="sourceLineNo">098</span> * &lt;li&gt;a slash-relative name: path relative to the default file system (e.g.<a name="line.98"></a>
+<span class="sourceLineNo">099</span> * /foo/bar)<a name="line.99"></a>
+<span class="sourceLineNo">100</span> * &lt;li&gt;a working-directory-relative name: path relative to the working dir (e.g.<a name="line.100"></a>
+<span class="sourceLineNo">101</span> * foo/bar)<a name="line.101"></a>
+<span class="sourceLineNo">102</span> * &lt;/ul&gt;<a name="line.102"></a>
+<span class="sourceLineNo">103</span> *  Relative paths with scheme (scheme:foo/bar) are illegal.<a name="line.103"></a>
+<span class="sourceLineNo">104</span> *  <a name="line.104"></a>
+<span class="sourceLineNo">105</span> * &lt;h2&gt;Role of FileContext and Configuration Defaults&lt;/h2&gt;<a name="line.105"></a>
+<span class="sourceLineNo">106</span> *<a name="line.106"></a>
+<span class="sourceLineNo">107</span> * The FileContext is the analogue of per-process file-related state in Unix. It<a name="line.107"></a>
+<span class="sourceLineNo">108</span> * contains two properties:<a name="line.108"></a>
+<span class="sourceLineNo">109</span> * <a name="line.109"></a>
+<span class="sourceLineNo">110</span> * &lt;ul&gt;<a name="line.110"></a>
+<span class="sourceLineNo">111</span> * &lt;li&gt;the default file system (for resolving slash-relative names)<a name="line.111"></a>
+<span class="sourceLineNo">112</span> * &lt;li&gt;the umask (for file permissions)<a name="line.112"></a>
+<span class="sourceLineNo">113</span> * &lt;/ul&gt;<a name="line.113"></a>
+<span class="sourceLineNo">114</span> * In general, these properties are obtained from the default configuration file<a name="line.114"></a>
+<span class="sourceLineNo">115</span> * in the user's environment (see {@link Configuration}).<a name="line.115"></a>
+<span class="sourceLineNo">116</span> * <a name="line.116"></a>
+<span class="sourceLineNo">117</span> * Further file system properties are specified on the server-side. File system<a name="line.117"></a>
+<span class="sourceLineNo">118</span> * operations default to using these server-side defaults unless otherwise<a name="line.118"></a>
+<span class="sourceLineNo">119</span> * specified.<a name="line.119"></a>
+<span class="sourceLineNo">120</span> * &lt;p&gt;<a name="line.120"></a>
+<span class="sourceLineNo">121</span> * The file system related server-side defaults are:<a name="line.121"></a>
+<span class="sourceLineNo">122</span> *  &lt;ul&gt;<a name="line.122"></a>
+<span class="sourceLineNo">123</span> *  &lt;li&gt; the home directory (default is "/user/userName")<a name="line.123"></a>
+<span class="sourceLineNo">124</span> *  &lt;li&gt; the initial wd (only for local fs)<a name="line.124"></a>
+<span class="sourceLineNo">125</span> *  &lt;li&gt; replication factor<a name="line.125"></a>
+<span class="sourceLineNo">126</span> *  &lt;li&gt; block size<a name="line.126"></a>
+<span class="sourceLineNo">127</span> *  &lt;li&gt; buffer size<a name="line.127"></a>
+<span class="sourceLineNo">128</span> *  &lt;li&gt; encryptDataTransfer <a name="line.128"></a>
+<span class="sourceLineNo">129</span> *  &lt;li&gt; checksum option. (checksumType and  bytesPerChecksum)<a name="line.129"></a>
+<span class="sourceLineNo">130</span> *  &lt;/ul&gt;<a name="line.130"></a>
+<span class="sourceLineNo">131</span> *<a name="line.131"></a>
+<span class="sourceLineNo">132</span> * &lt;h2&gt;Example Usage&lt;/h2&gt;<a name="line.132"></a>
+<span class="sourceLineNo">133</span> *<a name="line.133"></a>
+<span class="sourceLineNo">134</span> * Example 1: use the default config read from the $HADOOP_CONFIG/core.xml.<a name="line.134"></a>
+<span class="sourceLineNo">135</span> *   Unspecified values come from core-defaults.xml in the release jar.<a name="line.135"></a>
+<span class="sourceLineNo">136</span> *  &lt;ul&gt;  <a name="line.136"></a>
+<span class="sourceLineNo">137</span> *  &lt;li&gt; myFContext = FileContext.getFileContext(); // uses the default config<a name="line.137"></a>
+<span class="sourceLineNo">138</span> *                                                // which has your default FS <a name="line.138"></a>
+<span class="sourceLineNo">139</span> *  &lt;li&gt;  myFContext.create(path, ...);<a name="line.139"></a>
+<span class="sourceLineNo">140</span> *  &lt;li&gt;  myFContext.setWorkingDir(path);<a name="line.140"></a>
+<span class="sourceLineNo">141</span> *  &lt;li&gt;  myFContext.open (path, ...);  <a name="line.141"></a>
+<span class="sourceLineNo">142</span> *  &lt;li&gt;...<a name="line.142"></a>
+<span class="sourceLineNo">143</span> *  &lt;/ul&gt;  <a name="line.143"></a>
+<span class="sourceLineNo">144</span> * Example 2: Get a FileContext with a specific URI as the default FS<a name="line.144"></a>
+<span class="sourceLineNo">145</span> *  &lt;ul&gt;  <a name="line.145"></a>
+<span class="sourceLineNo">146</span> *  &lt;li&gt; myFContext = FileContext.getFileContext(URI);<a name="line.146"></a>
+<span class="sourceLineNo">147</span> *  &lt;li&gt; myFContext.create(path, ...);<a name="line.147"></a>
+<span class="sourceLineNo">148</span> *  &lt;li&gt;...<a name="line.148"></a>
+<span class="sourceLineNo">149</span> * &lt;/ul&gt;<a name="line.149"></a>
+<span class="sourceLineNo">150</span> * Example 3: FileContext with local file system as the default<a name="line.150"></a>
+<span class="sourceLineNo">151</span> *  &lt;ul&gt; <a name="line.151"></a>
+<span class="sourceLineNo">152</span> *  &lt;li&gt; myFContext = FileContext.getLocalFSFileContext();<a name="line.152"></a>
+<span class="sourceLineNo">153</span> *  &lt;li&gt; myFContext.create(path, ...);<a name="line.153"></a>
+<span class="sourceLineNo">154</span> *  &lt;li&gt; ...<a name="line.154"></a>
+<span class="sourceLineNo">155</span> *  &lt;/ul&gt; <a name="line.155"></a>
+<span class="sourceLineNo">156</span> * Example 4: Use a specific config, ignoring $HADOOP_CONFIG<a name="line.156"></a>
+<span class="sourceLineNo">157</span> *  Generally you should not need use a config unless you are doing<a name="line.157"></a>
+<span class="sourceLineNo">158</span> *   &lt;ul&gt; <a name="line.158"></a>
+<span class="sourceLineNo">159</span> *   &lt;li&gt; configX = someConfigSomeOnePassedToYou;<a name="line.159"></a>
+<span class="sourceLineNo">160</span> *   &lt;li&gt; myFContext = getFileContext(configX); // configX is not changed,<a name="line.160"></a>
+<span class="sourceLineNo">161</span> *                                              // is passed down <a name="line.161"></a>
+<span class="sourceLineNo">162</span> *   &lt;li&gt; myFContext.create(path, ...);<a name="line.162"></a>
+<span class="sourceLineNo">163</span> *   &lt;li&gt;...<a name="line.163"></a>
+<span class="sourceLineNo">164</span> *  &lt;/ul&gt;                                          <a name="line.164"></a>
+<span class="sourceLineNo">165</span> *    <a name="line.165"></a>
+<span class="sourceLineNo">166</span> */<a name="line.166"></a>
+<span class="sourceLineNo">167</span><a name="line.167"></a>
+<span class="sourceLineNo">168</span>@InterfaceAudience.Public<a name="line.168"></a>
+<span class="sourceLineNo">169</span>@InterfaceStability.Stable<a name="line.169"></a>
+<span class="sourceLineNo">170</span>public class FileContext {<a name="line.170"></a>
+<span class="sourceLineNo">171</span>  <a name="line.171"></a>
+<span class="sourceLineNo">172</span>  public static final Log LOG = LogFactory.getLog(FileContext.class);<a name="line.172"></a>
+<span class="sourceLineNo">173</span>  /**<a name="line.173"></a>
+<span class="sourceLineNo">174</span>   * Default permission for directory and symlink<a name="line.174"></a>
+<span class="sourceLineNo">175</span>   * In previous versions, this default permission was also used to<a name="line.175"></a>
+<span class="sourceLineNo">176</span>   * create files, so files created end up with ugo+x permission.<a name="line.176"></a>
+<span class="sourceLineNo">177</span>   * See HADOOP-9155 for detail. <a name="line.177"></a>
+<span class="sourceLineNo">178</span>   * Two new constants are added to solve this, please use <a name="line.178"></a>
+<span class="sourceLineNo">179</span>   * {@link FileContext#DIR_DEFAULT_PERM} for directory, and use<a name="line.179"></a>
+<span class="sourceLineNo">180</span>   * {@link FileContext#FILE_DEFAULT_PERM} for file.<a name="line.180"></a>
+<span class="sourceLineNo">181</span>   * This constant is kept for compatibility.<a name="line.181"></a>
+<span class="sourceLineNo">182</span>   */<a name="line.182"></a>
+<span class="sourceLineNo">183</span>  public static final FsPermission DEFAULT_PERM = FsPermission.getDefault();<a name="line.183"></a>
+<span class="sourceLineNo">184</span>  /**<a name="line.184"></a>
+<span class="sourceLineNo">185</span>   * Default permission for directory<a name="line.185"></a>
+<span class="sourceLineNo">186</span>   */<a name="line.186"></a>
+<span class="sourceLineNo">187</span>  public static final FsPermission DIR_DEFAULT_PERM = FsPermission.getDirDefault();<a name="line.187"></a>
+<span class="sourceLineNo">188</span>  /**<a name="line.188"></a>
+<span class="sourceLineNo">189</span>   * Default permission for file<a name="line.189"></a>
+<span class="sourceLineNo">190</span>   */<a name="line.190"></a>
+<span class="sourceLineNo">191</span>  public static final FsPermission FILE_DEFAULT_PERM = FsPermission.getFileDefault();<a name="line.191"></a>
+<span class="sourceLineNo">192</span><a name="line.192"></a>
+<span class="sourceLineNo">193</span>  /**<a name="line.193"></a>
+<span class="sourceLineNo">194</span>   * Priority of the FileContext shutdown hook.<a name="line.194"></a>
+<span class="sourceLineNo">195</span>   */<a name="line.195"></a>
+<span class="sourceLineNo">196</span>  public static final int SHUTDOWN_HOOK_PRIORITY = 20;<a name="line.196"></a>
+<span class="sourceLineNo">197</span><a name="line.197"></a>
+<span class="sourceLineNo">198</span>  /**<a name="line.198"></a>
+<span class="sourceLineNo">199</span>   * List of files that should be deleted on JVM shutdown.<a name="line.199"></a>
+<span class="sourceLineNo">200</span>   */<a name="line.200"></a>
+<span class="sourceLineNo">201</span>  static final Map&lt;FileContext, Set&lt;Path&gt;&gt; DELETE_ON_EXIT = <a name="line.201"></a>
+<span class="sourceLineNo">202</span>    new IdentityHashMap&lt;FileContext, Set&lt;Path&gt;&gt;();<a name="line.202"></a>
+<span class="sourceLineNo">203</span><a name="line.203"></a>
+<span class="sourceLineNo">204</span>  /** JVM shutdown hook thread. */<a name="line.204"></a>
+<span class="sourceLineNo">205</span>  static final FileContextFinalizer FINALIZER = <a name="line.205"></a>
+<span class="sourceLineNo">206</span>    new FileContextFinalizer();<a name="line.206"></a>
+<span class="sourceLineNo">207</span>  <a name="line.207"></a>
+<span class="sourceLineNo">208</span>  private static final PathFilter DEFAULT_FILTER = new PathFilter() {<a name="line.208"></a>
+<span class="sourceLineNo">209</span>    @Override<a name="line.209"></a>
+<span class="sourceLineNo">210</span>    public boolean accept(final Path file) {<a name="line.210"></a>
+<span class="sourceLineNo">211</span>      return true;<a name="line.211"></a>
+<span class="sourceLineNo">212</span>    }<a name="line.212"></a>
+<span class="sourceLineNo">213</span>  };<a name="line.213"></a>
+<span class="sourceLineNo">214</span>  <a name="line.214"></a>
+<span class="sourceLineNo">215</span>  /**<a name="line.215"></a>
+<span class="sourceLineNo">216</span>   * The FileContext is defined by.<a name="line.216"></a>
+<span class="sourceLineNo">217</span>   *  1) defaultFS (slash)<a name="line.217"></a>
+<span class="sourceLineNo">218</span>   *  2) wd<a name="line.218"></a>
+<span class="sourceLineNo">219</span>   *  3) umask (Obtained by FsPermission.getUMask(conf))<a name="line.219"></a>
+<span class="sourceLineNo">220</span>   */   <a name="line.220"></a>
+<span class="sourceLineNo">221</span>  private final AbstractFileSystem defaultFS; //default FS for this FileContext.<a name="line.221"></a>
+<span class="sourceLineNo">222</span>  private Path workingDir;          // Fully qualified<a name="line.222"></a>
 <span class="sourceLineNo">223</span>  private final Configuration conf;<a name="line.223"></a>
 <span class="sourceLineNo">224</span>  private final UserGroupInformation ugi;<a name="line.224"></a>
 <span class="sourceLineNo">225</span>  final boolean resolveSymlinks;<a name="line.225"></a>
 <span class="sourceLineNo">226</span>  private final Tracer tracer;<a name="line.226"></a>
 <span class="sourceLineNo">227</span><a name="line.227"></a>
 <span class="sourceLineNo">228</span>  private FileContext(final AbstractFileSystem defFs,<a name="line.228"></a>
-<span class="sourceLineNo">229</span>    final FsPermission theUmask, final Configuration aConf) {<a name="line.229"></a>
+<span class="sourceLineNo">229</span>                      final Configuration aConf) {<a name="line.229"></a>
 <span class="sourceLineNo">230</span>    defaultFS = defFs;<a name="line.230"></a>
-<span class="sourceLineNo">231</span>    umask = theUmask;<a name="line.231"></a>
-<span class="sourceLineNo">232</span>    conf = aConf;<a name="line.232"></a>
-<span class="sourceLineNo">233</span>    tracer = FsTracer.get(aConf);<a name="line.233"></a>
-<span class="sourceLineNo">234</span>    try {<a name="line.234"></a>
-<span class="sourceLineNo">235</span>      ugi = UserGroupInformation.getCurrentUser();<a name="line.235"></a>
-<span class="sourceLineNo">236</span>    } catch (IOException e) {<a name="line.236"></a>
-<span class="sourceLineNo">237</span>      LOG.error("Exception in getCurrentUser: ",e);<a name="line.237"></a>
-<span class="sourceLineNo">238</span>      throw new RuntimeException("Failed to get the current user " +<a name="line.238"></a>
-<span class="sourceLineNo">239</span>                "while creating a FileContext", e);<a name="line.239"></a>
-<span class="sourceLineNo">240</span>    }<a name="line.240"></a>
-<span class="sourceLineNo">241</span>    /*<a name="line.241"></a>
-<span class="sourceLineNo">242</span>     * Init the wd.<a name="line.242"></a>
-<span class="sourceLineNo">243</span>     * WorkingDir is implemented at the FileContext layer <a name="line.243"></a>
-<span class="sourceLineNo">244</span>     * NOT at the AbstractFileSystem layer. <a name="line.244"></a>
-<span class="sourceLineNo">245</span>     * If the DefaultFS, such as localFilesystem has a notion of<a name="line.245"></a>
-<span class="sourceLineNo">246</span>     *  builtin WD, we use that as the initial WD.<a name="line.246"></a>
-<span class="sourceLineNo">247</span>     *  Otherwise the WD is initialized to the home directory.<a name="line.247"></a>
-<span class="sourceLineNo">248</span>     */<a name="line.248"></a>
-<span class="sourceLineNo">249</span>    workingDir = defaultFS.getInitialWorkingDirectory();<a name="line.249"></a>
-<span class="sourceLineNo">250</span>    if (workingDir == null) {<a name="line.250"></a>
-<span class="sourceLineNo">251</span>      workingDir = defaultFS.getHomeDirectory();<a name="line.251"></a>
-<span class="sourceLineNo">252</span>    }<a name="line.252"></a>
-<span class="sourceLineNo">253</span>    resolveSymlinks = conf.getBoolean(<a name="line.253"></a>
-<span class="sourceLineNo">254</span>        CommonConfigurationKeys.FS_CLIENT_RESOLVE_REMOTE_SYMLINKS_KEY,<a name="line.254"></a>
-<span class="sourceLineNo">255</span>        CommonConfigurationKeys.FS_CLIENT_RESOLVE_REMOTE_SYMLINKS_DEFAULT);<a name="line.255"></a>
-<span class="sourceLineNo">256</span>    util = new Util(); // for the inner class<a name="line.256"></a>
-<span class="sourceLineNo">257</span>  }<a name="line.257"></a>
-<span class="sourceLineNo">258</span><a name="line.258"></a>
-<span class="sourceLineNo">259</span>  /* <a name="line.259"></a>
-<span class="sourceLineNo">260</span>   * Remove relative part - return "absolute":<a name="line.260"></a>
-<span class="sourceLineNo">261</span>   * If input is relative path ("foo/bar") add wd: ie "/&lt;workingDir&gt;/foo/bar"<a name="line.261"></a>
-<span class="sourceLineNo">262</span>   * A fully qualified uri ("hdfs://nn:p/foo/bar") or a slash-relative path<a name="line.262"></a>
-<span class="sourceLineNo">263</span>   * ("/foo/bar") are returned unchanged.<a name="line.263"></a>
-<span class="sourceLineNo">264</span>   * <a name="line.264"></a>
-<span class="sourceLineNo">265</span>   * Applications that use FileContext should use #makeQualified() since<a name="line.265"></a>
-<span class="sourceLineNo">266</span>   * they really want a fully qualified URI.<a name="line.266"></a>
-<span class="sourceLineNo">267</span>   * Hence this method is not called makeAbsolute() and <a name="line.267"></a>
-<span class="sourceLineNo">268</span>   * has been deliberately declared private.<a name="line.268"></a>
-<span class="sourceLineNo">269</span>   */<a name="line.269"></a>
-<span class="sourceLineNo">270</span>  Path fixRelativePart(Path p) {<a name="line.270"></a>
-<span class="sourceLineNo">271</span>    Preconditions.checkNotNull(p, "path cannot be null");<a name="line.271"></a>
-<span class="sourceLineNo">272</span>    if (p.isUriPathAbsolute()) {<a name="line.272"></a>
-<span class="sourceLineNo">273</span>      return p;<a name="line.273"></a>
-<span class="sourceLineNo">274</span>    } else {<a name="line.274"></a>
-<span class="sourceLineNo">275</span>      return new Path(workingDir, p);<a name="line.275"></a>
-<span class="sourceLineNo">276</span>    }<a name="line.276"></a>
-<span class="sourceLineNo">277</span>  }<a name="line.277"></a>
-<span class="sourceLineNo">278</span><a name="line.278"></a>
-<span class="sourceLineNo">279</span>  /**<a name="line.279"></a>
-<span class="sourceLineNo">280</span>   * Delete all the paths that were marked as delete-on-exit.<a name="line.280"></a>
-<span class="sourceLineNo">281</span>   */<a name="line.281"></a>
-<span class="sourceLineNo">282</span>  static void processDeleteOnExit() {<a name="line.282"></a>
-<span class="sourceLineNo">283</span>    synchronized (DELETE_ON_EXIT) {<a name="line.283"></a>
-<span class="sourceLineNo">284</span>      Set&lt;Entry&lt;FileContext, Set&lt;Path&gt;&gt;&gt; set = DELETE_ON_EXIT.entrySet();<a name="line.284"></a>
-<span class="sourceLineNo">285</span>      for (Entry&lt;FileContext, Set&lt;Path&gt;&gt; entry : set) {<a name="line.285"></a>
-<span class="sourceLineNo">286</span>        FileContext fc = entry.getKey();<a name="line.286"></a>
-<span class="sourceLineNo">287</span>        Set&lt;Path&gt; paths = entry.getValue();<a name="line.287"></a>
-<span class="sourceLineNo">288</span>        for (Path path : paths) {<a name="line.288"></a>
-<span class="sourceLineNo">289</span>          try {<a name="line.289"></a>
-<span class="sourceLineNo">290</span>            fc.delete(path, true);<a name="line.290"></a>
-<span class="sourceLineNo">291</span>          } catch (IOException e) {<a name="line.291"></a>
-<span class="sourceLineNo">292</span>            LOG.warn("Ignoring failure to deleteOnExit for path " + path);<a name="line.292"></a>
-<span class="sourceLineNo">293</span>          }<a name="line.293"></a>
-<span class="sourceLineNo">294</span>        }<a name="line.294"></a>
-<span class="sourceLineNo">295</span>      }<a name="line.295"></a>
-<span class="sourceLineNo">296</span>      DELETE_ON_EXIT.clear();<a name="line.296"></a>
-<span class="sourceLineNo">297</span>    }<a name="line.297"></a>
-<span class="sourceLineNo">298</span>  }<a name="line.298"></a>
-<span class="sourceLineNo">299</span><a name="line.299"></a>
-<span class="sourceLineNo">300</span>  /**<a name="line.300"></a>
-<span class="sourceLineNo">301</span>   * Get the file system of supplied path.<a name="line.301"></a>
-<span class="sourceLineNo">302</span>   * <a name="line.302"></a>
-<span class="sourceLineNo">303</span>   * @param absOrFqPath - absolute or fully qualified path<a name="line.303"></a>
-<span class="sourceLineNo">304</span>   * @return the file system of the path<a name="line.304"></a>
-<span class="sourceLineNo">305</span>   * <a name="line.305"></a>
-<span class="sourceLineNo">306</span>   * @throws UnsupportedFileSystemException If the file system for<a name="line.306"></a>
-<span class="sourceLineNo">307</span>   *           &lt;code&gt;absOrFqPath&lt;/code&gt; is not supported.<a name="line.307"></a>
-<span class="sourceLineNo">308</span>   * @throws IOExcepton If the file system for &lt;code&gt;absOrFqPath&lt;/code&gt; could<a name="line.308"></a>
-<span class="sourceLineNo">309</span>   *         not be instantiated.<a name="line.309"></a>
-<span class="sourceLineNo">310</span>   */<a name="line.310"></a>
-<span class="sourceLineNo">311</span>  protected AbstractFileSystem getFSofPath(final Path absOrFqPath)<a name="line.311"></a>
-<span class="sourceLineNo">312</span>      throws UnsupportedFileSystemException, IOException {<a name="line.312"></a>
-<span class="sourceLineNo">313</span>    absOrFqPath.checkNotSchemeWithRelative();<a name="line.313"></a>
-<span class="sourceLineNo">314</span>    absOrFqPath.checkNotRelative();<a name="line.314"></a>
-<span class="sourceLineNo">315</span><a name="line.315"></a>
-<span class="sourceLineNo">316</span>    try { <a name="line.316"></a>
-<span class="sourceLineNo">317</span>      // Is it the default FS for this FileContext?<a name="line.317"></a>
-<span class="sourceLineNo">318</span>      defaultFS.checkPath(absOrFqPath);<a name="line.318"></a>
-<span class="sourceLineNo">319</span>      return defaultFS;<a name="line.319"></a>
-<span class="sourceLineNo">320</span>    } catch (Exception e) { // it is different FileSystem<a name="line.320"></a>
-<span class="sourceLineNo">321</span>      return getAbstractFileSystem(ugi, absOrFqPath.toUri(), conf);<a name="line.321"></a>
-<span class="sourceLineNo">322</span>    }<a name="line.322"></a>
-<span class="sourceLineNo">323</span>  }<a name="line.323"></a>
-<span class="sourceLineNo">324</span>  <a name="line.324"></a>
-<span class="sourceLineNo">325</span>  private static AbstractFileSystem getAbstractFileSystem(<a name="line.325"></a>
-<span class="sourceLineNo">326</span>      UserGroupInformation user, final URI uri, final Configuration conf)<a name="line.326"></a>
-<span class="sourceLineNo">327</span>      throws UnsupportedFileSystemException, IOException {<a name="line.327"></a>
-<span class="sourceLineNo">328</span>    try {<a name="line.328"></a>
-<span class="sourceLineNo">329</span>      return user.doAs(new PrivilegedExceptionAction&lt;AbstractFileSystem&gt;() {<a name="line.329"></a>
-<span class="sourceLineNo">330</span>        @Override<a name="line.330"></a>
-<span class="sourceLineNo">331</span>        public AbstractFileSystem run() throws UnsupportedFileSystemException {<a name="line.331"></a>
-<span class="sourceLineNo">332</span>          return AbstractFileSystem.get(uri, conf);<a name="line.332"></a>
-<span class="sourceLineNo">333</span>        }<a name="line.333"></a>
-<span class="sourceLineNo">334</span>      });<a name="line.334"></a>
-<span class="sourceLineNo">335</span>    } catch (InterruptedException ex) {<a name="line.335"></a>
-<span class="sourceLineNo">336</span>      LOG.error(ex);<a name="line.336"></a>
-<span class="sourceLineNo">337</span>      throw new IOException("Failed to get the AbstractFileSystem for path: "<a name="line.337"></a>
-<span class="sourceLineNo">338</span>          + uri, ex);<a name="line.338"></a>
-<span class="sourceLineNo">339</span>    }<a name="line.339"></a>
-<span class="sourceLineNo">340</span>  }<a name="line.340"></a>
-<span class="sourceLineNo">341</span>  <a name="line.341"></a>
-<span class="sourceLineNo">342</span>  /**<a name="line.342"></a>
-<span class="sourceLineNo">343</span>   * Protected Static Factory methods for getting a FileContexts<a name="line.343"></a>
-<span class="sourceLineNo">344</span>   * that take a AbstractFileSystem as input. To be used for testing.<a name="line.344"></a>
-<span class="sourceLineNo">345</span>   */<a name="line.345"></a>
-<span class="sourceLineNo">346</span><a name="line.346"></a>
-<span class="sourceLineNo">347</span>  /**<a name="line.347"></a>
-<span class="sourceLineNo">348</span>   * Create a FileContext with specified FS as default using the specified<a name="line.348"></a>
-<span class="sourceLineNo">349</span>   * config.<a name="line.349"></a>
-<span class="sourceLineNo">350</span>   * <a name="line.350"></a>
-<span class="sourceLineNo">351</span>   * @param defFS<a name="line.351"></a>
-<span class="sourceLineNo">352</span>   * @param aConf<a name="line.352"></a>
-<span class="sourceLineNo">353</span>   * @return new FileContext with specified FS as default.<a name="line.353"></a>
-<span class="sourceLineNo">354</span>   */<a name="line.354"></a>
-<span class="sourceLineNo">355</span>  public static FileContext getFileContext(final AbstractFileSystem defFS,<a name="line.355"></a>
-<span class="sourceLineNo">356</span>                    final Configuration aConf) {<a name="line.356"></a>
-<span class="sourceLineNo">357</span>    return new FileContext(defFS, FsPermission.getUMask(aConf), aConf);<a name="line.357"></a>
-<span class="sourceLineNo">358</span>  }<a name="line.358"></a>
-<span class="sourceLineNo">359</span>  <a name="line.359"></a>
-<span class="sourceLineNo">360</span>  /**<a name="line.360"></a>
-<span class="sourceLineNo">361</span>   * Create a FileContext for specified file system using the default config.<a name="line.361"></a>
-<span class="sourceLineNo">362</span>   * <a name="line.362"></a>
-<span class="sourceLineNo">363</span>   * @param defaultFS<a name="line.363"></a>
-<span class="sourceLineNo">364</span>   * @return a FileContext with the specified AbstractFileSystem<a name="line.364"></a>
-<span class="sourceLineNo">365</span>   *                 as the default FS.<a name="line.365"></a>
-<span class="sourceLineNo">366</span>   */<a name="line.366"></a>
-<span class="sourceLineNo">367</span>  protected static FileContext getFileContext(<a name="line.367"></a>
-<span class="sourceLineNo">368</span>    final AbstractFileSystem defaultFS) {<a name="line.368"></a>
-<span class="sourceLineNo">369</span>    return getFileContext(defaultFS, new Configuration());<a name="line.369"></a>
-<span class="sourceLineNo">370</span>  }<a name="line.370"></a>
-<span class="sourceLineNo">371</span> <a name="line.371"></a>
-<span class="sourceLineNo">372</span>  /**<a name="line.372"></a>
-<span class="sourceLineNo">373</span>   * Static Factory methods for getting a FileContext.<a name="line.373"></a>
-<span class="sourceLineNo">374</span>   * Note new file contexts are created for each call.<a name="line.374"></a>
-<span class="sourceLineNo">375</span>   * The only singleton is the local FS context using the default config.<a name="line.375"></a>
-<span class="sourceLineNo">376</span>   * <a name="line.376"></a>
-<span class="sourceLineNo">377</span>   * Methods that use the default config: the default config read from the<a name="line.377"></a>
-<span class="sourceLineNo">378</span>   * $HADOOP_CONFIG/core.xml,<a name="line.378"></a>
-<span class="sourceLineNo">379</span>   * Unspecified key-values for config are defaulted from core-defaults.xml<a name="line.379"></a>
-<span class="sourceLineNo">380</span>   * in the release jar.<a name="line.380"></a>
-<span class="sourceLineNo">381</span>   * <a name="line.381"></a>
-<span class="sourceLineNo">382</span>   * The keys relevant to the FileContext layer are extracted at time of<a name="line.382"></a>
-<span class="sourceLineNo">383</span>   * construction. Changes to the config after the call are ignore<a name="line.383"></a>
-<span class="sourceLineNo">384</span>   * by the FileContext layer. <a name="line.384"></a>
-<span class="sourceLineNo">385</span>   * The conf is passed to lower layers like AbstractFileSystem and HDFS which<a name="line.385"></a>
-<span class="sourceLineNo">386</span>   * pick up their own config variables.<a name="line.386"></a>
-<span class="sourceLineNo">387</span>   */<a name="line.387"></a>
-<span class="sourceLineNo">388</span><a name="line.388"></a>
-<span class="sourceLineNo">389</span>  /**<a name="line.389"></a>
-<span class="sourceLineNo">390</span>   * Create a FileContext using the default config read from the<a name="line.390"></a>
-<span class="sourceLineNo">391</span>   * $HADOOP_CONFIG/core.xml, Unspecified key-values for config are defaulted<a name="line.391"></a>
-<span class="sourceLineNo">392</span>   * from core-defaults.xml in the release jar.<a name="line.392"></a>
-<span class="sourceLineNo">393</span>   * <a name="line.393"></a>
-<span class="sourceLineNo">394</span>   * @throws UnsupportedFileSystemException If the file system from the default<a name="line.394"></a>
-<span class="sourceLineNo">395</span>   *           configuration is not supported<a name="line.395"></a>
-<span class="sourceLineNo">396</span>   */<a name="line.396"></a>
-<span class="sourceLineNo">397</span>  public static FileContext getFileContext()<a name="line.397"></a>
-<span class="sourceLineNo">398</span>      throws UnsupportedFileSystemException {<a name="line.398"></a>
-<span class="sourceLineNo">399</span>    return getFileContext(new Configuration());<a name="line.399"></a>
-<span class="sourceLineNo">400</span>  }<a name="line.400"></a>
-<span class="sourceLineNo">401</span><a name="line.401"></a>
-<span class="sourceLineNo">402</span>  /**<a name="line.402"></a>
-<span class="sourceLineNo">403</span>   * @return a FileContext for the local file system using the default config.<a name="line.403"></a>
-<span class="sourceLineNo">404</span>   * @throws UnsupportedFileSystemException If the file system for<a name="line.404"></a>
-<span class="sourceLineNo">405</span>   *           {@link FsConstants#LOCAL_FS_URI} is not supported.<a name="line.405"></a>
-<span class="sourceLineNo">406</span>   */<a name="line.406"></a>
-<span class="sourceLineNo">407</span>  public static FileContext getLocalFSFileContext()<a name="line.407"></a>
-<span class="sourceLineNo">408</span>      throws UnsupportedFileSystemException {<a name="line.408"></a>
-<span class="sourceLineNo">409</span>    return getFileContext(FsConstants.LOCAL_FS_URI);<a name="line.409"></a>
-<span class="sourceLineNo">410</span>  }<a name="line.410"></a>
-<span class="sourceLineNo">411</span><a name="line.411"></a>
-<span class="sourceLineNo">412</span>  /**<a name="line.412"></a>
-<span class="sourceLineNo">413</span>   * Create a FileContext for specified URI using the default config.<a name="line.413"></a>
-<span class="sourceLineNo">414</span>   * <a name="line.414"></a>
-<span class="sourceLineNo">415</span>   * @param defaultFsUri<a name="line.415"></a>
-<span class="sourceLineNo">416</span>   * @return a FileContext with the specified URI as the default FS.<a name="line.416"></a>
-<span class="sourceLineNo">417</span>   * <a name="line.417"></a>
-<span class="sourceLineNo">418</span>   * @throws UnsupportedFileSystemException If the file system for<a name="line.418"></a>
-<span class="sourceLineNo">419</span>   *           &lt;code&gt;defaultFsUri&lt;/code&gt; is not supported<a name="line.419"></a>
-<span class="sourceLineNo">420</span>   */<a name="line.420"></a>
-<span class="sourceLineNo">421</span>  public static FileContext getFileContext(final URI defaultFsUri)<a name="line.421"></a>
-<span class="sourceLineNo">422</span>      throws UnsupportedFileSystemException {<a name="line.422"></a>
-<span class="sourceLineNo">423</span>    return getFileContext(defaultFsUri, new Configuration());<a name="line.423"></a>
-<span class="sourceLineNo">424</span>  }<a name="line.424"></a>
-<span class="sourceLineNo">425</span><a name="line.425"></a>
-<span class="sourceLineNo">426</span>  /**<a name="line.426"></a>
-<span class="sourceLineNo">427</span>   * Create a FileContext for specified default URI using the specified config.<a name="line.427"></a>
-<span class="sourceLineNo">428</span>   * <a name="line.428"></a>
-<span class="sourceLineNo">429</span>   * @param defaultFsUri<a name="line.429"></a>
-<span class="sourceLineNo">430</span>   * @param aConf<a name="line.430"></a>
-<span class="sourceLineNo">431</span>   * @return new FileContext for specified uri<a name="line.431"></a>
-<span class="sourceLineNo">432</span>   * @throws UnsupportedFileSystemException If the file system with specified is<a name="line.432"></a>
-<span class="sourceLineNo">433</span>   *           not supported<a name="line.433"></a>
-<span class="sourceLineNo">434</span>   * @throws RuntimeException If the file system specified is supported but<a name="line.434"></a>
-<span class="sourceLineNo">435</span>   *         could not be instantiated, or if login fails.<a name="line.435"></a>
-<span class="sourceLineNo">436</span>   */<a name="line.436"></a>
-<span class="sourceLineNo">437</span>  public static FileContext getFileContext(final URI defaultFsUri,<a name="line.437"></a>
-<span class="sourceLineNo">438</span>      final Configuration aConf) throws UnsupportedFileSystemException {<a name="line.438"></a>
-<span class="sourceLineNo">439</span>    UserGroupInformation currentUser = null;<a name="line.439"></a>
-<span class="sourceLineNo">440</span>    AbstractFileSystem defaultAfs = null;<a name="line.440"></a>
-<span class="sourceLineNo">441</span>    if (defaultFsUri.getScheme() == null) {<a name="line.441"></a>
-<span class="sourceLineNo">442</span>      return getFileContext(aConf);<a name="line.442"></a>
-<span class="sourceLineNo">443</span>    }<a name="line.443"></a>
-<span class="sourceLineNo">444</span>    try {<a name="line.444"></a>
-<span class="sourceLineNo">445</span>      currentUser = UserGroupInformation.getCurrentUser();<a name="line.445"></a>
-<span class="sourceLineNo">446</span>      defaultAfs = getAbstractFileSystem(currentUser, defaultFsUri, aConf);<a name="line.446"></a>
-<span class="sourceLineNo">447</span>    } catch (UnsupportedFileSystemException ex) {<a name="line.447"></a>
-<span class="sourceLineNo">448</span>      throw ex;<a name="line.448"></a>
-<span class="sourceLineNo">449</span>    } catch (IOException ex) {<a name="line.449"></a>
-<span class="sourceLineNo">450</span>      LOG.error(ex);<a name="line.450"></a>
-<span class="sourceLineNo">451</span>      throw new RuntimeException(ex);<a name="line.451"></a>
-<span class="sourceLineNo">452</span>    }<a name="line.452"></a>
-<span class="sourceLineNo">453</span>    return getFileContext(defaultAfs, aConf);<a name="line.453"></a>
-<span class="sourceLineNo">454</span>  }<a name="line.454"></a>
-<span class="sourceLineNo">455</span><a name="line.455"></a>
-<span class="sourceLineNo">456</span>  /**<a name="line.456"></a>
-<span class="sourceLineNo">457</span>   * Create a FileContext using the passed config. Generally it is better to use<a name="line.457"></a>
-<span class="sourceLineNo">458</span>   * {@link #getFileContext(URI, Configuration)} instead of this one.<a name="line.458"></a>
+<span class="sourceLineNo">231</span>    conf = aConf;<a name="line.231"></a>
+<span class="sourceLineNo">232</span>    tracer = FsTracer.get(aConf);<a name="line.232"></a>
+<span class="sourceLineNo">233</span>    try {<a name="line.233"></a>
+<span class="sourceLineNo">234</span>      ugi = UserGroupInformation.getCurrentUser();<a name="line.234"></a>
+<span class="sourceLineNo">235</span>    } catch (IOException e) {<a name="line.235"></a>
+<span class="sourceLineNo">236</span>      LOG.error("Exception in getCurrentUser: ",e);<a name="line.236"></a>
+<span class="sourceLineNo">237</span>      throw new RuntimeException("Failed to get the current user " +<a name="line.237"></a>
+<span class="sourceLineNo">238</span>                "while creating a FileContext", e);<a name="line.238"></a>
+<span class="sourceLineNo">239</span>    }<a name="line.239"></a>
+<span class="sourceLineNo">240</span>    /*<a name="line.240"></a>
+<span class="sourceLineNo">241</span>     * Init the wd.<a name="line.241"></a>
+<span class="sourceLineNo">242</span>     * WorkingDir is implemented at the FileContext layer <a name="line.242"></a>
+<span class="sourceLineNo">243</span>     * NOT at the AbstractFileSystem layer. <a name="line.243"></a>
+<span class="sourceLineNo">244</span>     * If the DefaultFS, such as localFilesystem has a notion of<a name="line.244"></a>
+<span class="sourceLineNo">245</span>     *  builtin WD, we use that as the initial WD.<a name="line.245"></a>
+<span class="sourceLineNo">246</span>     *  Otherwise the WD is initialized to the home directory.<a name="line.246"></a>
+<span class="sourceLineNo">247</span>     */<a name="line.247"></a>
+<span class="sourceLineNo">248</span>    workingDir = defaultFS.getInitialWorkingDirectory();<a name="line.248"></a>
+<span class="sourceLineNo">249</span>    if (workingDir == null) {<a name="line.249"></a>
+<span class="sourceLineNo">250</span>      workingDir = defaultFS.getHomeDirectory();<a name="line.250"></a>
+<span class="sourceLineNo">251</span>    }<a name="line.251"></a>
+<span class="sourceLineNo">252</span>    resolveSymlinks = conf.getBoolean(<a name="line.252"></a>
+<span class="sourceLineNo">253</span>        CommonConfigurationKeys.FS_CLIENT_RESOLVE_REMOTE_SYMLINKS_KEY,<a name="line.253"></a>
+<span class="sourceLineNo">254</span>        CommonConfigurationKeys.FS_CLIENT_RESOLVE_REMOTE_SYMLINKS_DEFAULT);<a name="line.254"></a>
+<span class="sourceLineNo">255</span>    util = new Util(); // for the inner class<a name="line.255"></a>
+<span class="sourceLineNo">256</span>  }<a name="line.256"></a>
+<span class="sourceLineNo">257</span><a name="line.257"></a>
+<span class="sourceLineNo">258</span>  /* <a name="line.258"></a>
+<span class="sourceLineNo">259</span>   * Remove relative part - return "absolute":<a name="line.259"></a>
+<span class="sourceLineNo">260</span>   * If input is relative path ("foo/bar") add wd: ie "/&lt;workingDir&gt;/foo/bar"<a name="line.260"></a>
+<span class="sourceLineNo">261</span>   * A fully qualified uri ("hdfs://nn:p/foo/bar") or a slash-relative path<a name="line.261"></a>
+<span class="sourceLineNo">262</span>   * ("/foo/bar") are returned unchanged.<a name="line.262"></a>
+<span class="sourceLineNo">263</span>   * <a name="line.263"></a>
+<span class="sourceLineNo">264</span>   * Applications that use FileContext should use #makeQualified() since<a name="line.264"></a>
+<span class="sourceLineNo">265</span>   * they really want a fully qualified URI.<a name="line.265"></a>
+<span class="sourceLineNo">266</span>   * Hence this method is not called makeAbsolute() and <a name="line.266"></a>
+<span class="sourceLineNo">267</span>   * has been deliberately declared private.<a name="line.267"></a>
+<span class="sourceLineNo">268</span>   */<a name="line.268"></a>
+<span class="sourceLineNo">269</span>  Path fixRelativePart(Path p) {<a name="line.269"></a>
+<span class="sourceLineNo">270</span>    Preconditions.checkNotNull(p, "path cannot be null");<a name="line.270"></a>
+<span class="sourceLineNo">271</span>    if (p.isUriPathAbsolute()) {<a name="line.271"></a>
+<span class="sourceLineNo">272</span>      return p;<a name="line.272"></a>
+<span class="sourceLineNo">273</span>    } else {<a name="line.273"></a>
+<span class="sourceLineNo">274</span>      return new Path(workingDir, p);<a name="line.274"></a>
+<span class="sourceLineNo">275</span>    }<a name="line.275"></a>
+<span class="sourceLineNo">276</span>  }<a name="line.276"></a>
+<span class="sourceLineNo">277</span><a name="line.277"></a>
+<span class="sourceLineNo">278</span>  /**<a name="line.278"></a>
+<span class="sourceLineNo">279</span>   * Delete all the paths that were marked as delete-on-exit.<a name="line.279"></a>
+<span class="sourceLineNo">280</span>   */<a name="line.280"></a>
+<span class="sourceLineNo">281</span>  static void processDeleteOnExit() {<a name="line.281"></a>
+<span class="sourceLineNo">282</span>    synchronized (DELETE_ON_EXIT) {<a name="line.282"></a>
+<span class="sourceLineNo">283</span>      Set&lt;Entry&lt;FileContext, Set&lt;Path&gt;&gt;&gt; set = DELETE_ON_EXIT.entrySet();<a name="line.283"></a>
+<span class="sourceLineNo">284</span>      for (Entry&lt;FileContext, Set&lt;Path&gt;&gt; entry : set) {<a name="line.284"></a>
+<span class="sourceLineNo">285</span>        FileContext fc = entry.getKey();<a name="line.285"></a>
+<span class="sourceLineNo">286</span>        Set&lt;Path&gt; paths = entry.getValue();<a name="line.286"></a>
+<span class="sourceLineNo">287</span>        for (Path path : paths) {<a name="line.287"></a>
+<span class="sourceLineNo">288</span>          try {<a name="line.288"></a>
+<span class="sourceLineNo">289</span>            fc.delete(path, true);<a name="line.289"></a>
+<span class="sourceLineNo">290</span>          } catch (IOException e) {<a name="line.290"></a>
+<span class="sourceLineNo">291</span>            LOG.warn("Ignoring failure to deleteOnExit for path " + path);<a name="line.291"></a>
+<span class="sourceLineNo">292</span>          }<a name="line.292"></a>
+<span class="sourceLineNo">293</span>        }<a name="line.293"></a>
+<span class="sourceLineNo">294</span>      }<a name="line.294"></a>
+<span class="sourceLineNo">295</span>      DELETE_ON_EXIT.clear();<a name="line.295"></a>
+<span class="sourceLineNo">296</span>    }<a name="line.296"></a>
+<span class="sourceLineNo">297</span>  }<a name="line.297"></a>
+<span class="sourceLineNo">298</span><a name="line.298"></a>
+<span class="sourceLineNo">299</span>  /**<a name="line.299"></a>
+<span class="sourceLineNo">300</span>   * Get the file system of supplied path.<a name="line.300"></a>
+<span class="sourceLineNo">301</span>   * <a name="line.301"></a>
+<span class="sourceLineNo">302</span>   * @param absOrFqPath - absolute or fully qualified path<a name="line.302"></a>
+<span class="sourceLineNo">303</span>   * @return the file system of the path<a name="line.303"></a>
+<span class="sourceLineNo">304</span>   * <a name="line.304"></a>
+<span class="sourceLineNo">305</span>   * @throws UnsupportedFileSystemException If the file system for<a name="line.305"></a>
+<span class="sourceLineNo">306</span>   *           &lt;code&gt;absOrFqPath&lt;/code&gt; is not supported.<a name="line.306"></a>
+<span class="sourceLineNo">307</span>   * @throws IOException If the file system for &lt;code&gt;absOrFqPath&lt;/code&gt; could<a name="line.307"></a>
+<span class="sourceLineNo">308</span>   *         not be instantiated.<a name="line.308"></a>
+<span class="sourceLineNo">309</span>   */<a name="line.309"></a>
+<span class="sourceLineNo">310</span>  protected AbstractFileSystem getFSofPath(final Path absOrFqPath)<a name="line.310"></a>
+<span class="sourceLineNo">311</span>      throws UnsupportedFileSystemException, IOException {<a name="line.311"></a>
+<span class="sourceLineNo">312</span>    absOrFqPath.checkNotSchemeWithRelative();<a name="line.312"></a>
+<span class="sourceLineNo">313</span>    absOrFqPath.checkNotRelative();<a name="line.313"></a>
+<span class="sourceLineNo">314</span><a name="line.314"></a>
+<span class="sourceLineNo">315</span>    try { <a name="line.315"></a>
+<span class="sourceLineNo">316</span>      // Is it the default FS for this FileContext?<a name="line.316"></a>
+<span class="sourceLineNo">317</span>      defaultFS.checkPath(absOrFqPath);<a name="line.317"></a>
+<span class="sourceLineNo">318</span>      return defaultFS;<a name="line.318"></a>
+<span class="sourceLineNo">319</span>    } catch (Exception e) { // it is different FileSystem<a name="line.319"></a>
+<span class="sourceLineNo">320</span>      return getAbstractFileSystem(ugi, absOrFqPath.toUri(), conf);<a name="line.320"></a>
+<span class="sourceLineNo">321</span>    }<a name="line.321"></a>
+<span class="sourceLineNo">322</span>  }<a name="line.322"></a>
+<span class="sourceLineNo">323</span>  <a name="line.323"></a>
+<span class="sourceLineNo">324</span>  private static AbstractFileSystem getAbstractFileSystem(<a name="line.324"></a>
+<span class="sourceLineNo">325</span>      UserGroupInformation user, final URI uri, final Configuration conf)<a name="line.325"></a>
+<span class="sourceLineNo">326</span>      throws UnsupportedFileSystemException, IOException {<a name="line.326"></a>
+<span class="sourceLineNo">327</span>    try {<a name="line.327"></a>
+<span class="sourceLineNo">328</span>      return user.doAs(new PrivilegedExceptionAction&lt;AbstractFileSystem&gt;() {<a name="line.328"></a>
+<span class="sourceLineNo">329</span>        @Override<a name="line.329"></a>
+<span class="sourceLineNo">330</span>        public AbstractFileSystem run() throws UnsupportedFileSystemException {<a name="line.330"></a>
+<span class="sourceLineNo">331</span>          return AbstractFileSystem.get(uri, conf);<a name="line.331"></a>
+<span class="sourceLineNo">332</span>        }<a name="line.332"></a>
+<span class="sourceLineNo">333</span>      });<a name="line.333"></a>
+<span class="sourceLineNo">334</span>    } catch (InterruptedException ex) {<a name="line.334"></a>
+<span class="sourceLineNo">335</span>      LOG.error(ex);<a name="line.335"></a>
+<span class="sourceLineNo">336</span>      throw new IOException("Failed to get the AbstractFileSystem for path: "<a name="line.336"></a>
+<span class="sourceLineNo">337</span>          + uri, ex);<a name="line.337"></a>
+<span class="sourceLineNo">338</span>    }<a name="line.338"></a>
+<span class="sourceLineNo">339</span>  }<a name="line.339"></a>
+<span class="sourceLineNo">340</span>  <a name="line.340"></a>
+<span class="sourceLineNo">341</span>  /**<a name="line.341"></a>
+<span class="sourceLineNo">342</span>   * Protected Static Factory methods for getting a FileContexts<a name="line.342"></a>
+<span class="sourceLineNo">343</span>   * that take a AbstractFileSystem as input. To be used for testing.<a name="line.343"></a>
+<span class="sourceLineNo">344</span>   */<a name="line.344"></a>
+<span class="sourceLineNo">345</span><a name="line.345"></a>
+<span class="sourceLineNo">346</span>  /**<a name="line.346"></a>
+<span class="sourceLineNo">347</span>   * Create a FileContext with specified FS as default using the specified<a name="line.347"></a>
+<span class="sourceLineNo">348</span>   * config.<a name="line.348"></a>
+<span class="sourceLineNo">349</span>   * <a name="line.349"></a>
+<span class="sourceLineNo">350</span>   * @param defFS<a name="line.350"></a>
+<span class="sourceLineNo">351</span>   * @param aConf<a name="line.351"></a>
+<span class="sourceLineNo">352</span>   * @return new FileContext with specified FS as default.<a name="line.352"></a>
+<span class="sourceLineNo">353</span>   */<a name="line.353"></a>
+<span class="sourceLineNo">354</span>  public static FileContext getFileContext(final AbstractFileSystem defFS,<a name="line.354"></a>
+<span class="sourceLineNo">355</span>                    final Configuration aConf) {<a name="line.355"></a>
+<span class="sourceLineNo">356</span>    return new FileContext(defFS, aConf);<a name="line.356"></a>
+<span class="sourceLineNo">357</span>  }<a name="line.357"></a>
+<span class="sourceLineNo">358</span>  <a name="line.358"></a>
+<span class="sourceLineNo">359</span>  /**<a name="line.359"></a>
+<span class="sourceLineNo">360</span>   * Create a FileContext for specified file system using the default config.<a name="line.360"></a>
+<span class="sourceLineNo">361</span>   * <a name="line.361"></a>
+<span class="sourceLineNo">362</span>   * @param defaultFS<a name="line.362"></a>
+<span class="sourceLineNo">363</span>   * @return a FileContext with the specified AbstractFileSystem<a name="line.363"></a>
+<span class="sourceLineNo">364</span>   *                 as the default FS.<a name="line.364"></a>
+<span class="sourceLineNo">365</span>   */<a name="line.365"></a>
+<span class="sourceLineNo">366</span>  protected static FileContext getFileContext(<a name="line.366"></a>
+<span class="sourceLineNo">367</span>    final AbstractFileSystem defaultFS) {<a name="line.367"></a>
+<span class="sourceLineNo">368</span>    return getFileContext(defaultFS, new Configuration());<a name="line.368"></a>
+<span class="sourceLineNo">369</span>  }<a name="line.369"></a>
+<span class="sourceLineNo">370</span> <a name="line.370"></a>
+<span class="sourceLineNo">371</span>  /**<a name="line.371"></a>
+<span class="sourceLineNo">372</span>   * Static Factory methods for getting a FileContext.<a name="line.372"></a>
+<span class="sourceLineNo">373</span>   * Note new file contexts are created for each call.<a name="line.373"></a>
+<span class="sourceLineNo">374</span>   * The only singleton is the local FS context using the default config.<a name="line.374"></a>
+<span class="sourceLineNo">375</span>   * <a name="line.375"></a>
+<span class="sourceLineNo">376</span>   * Methods that use the default config: the default config read from the<a name="line.376"></a>
+<span class="sourceLineNo">377</span>   * $HADOOP_CONFIG/core.xml,<a name="line.377"></a>
+<span class="sourceLineNo">378</span>   * Unspecified key-values for config are defaulted from core-defaults.xml<a name="line.378"></a>
+<span class="sourceLineNo">379</span>   * in the release jar.<a name="line.379"></a>
+<span class="sourceLineNo">380</span>   * <a name="line.380"></a>
+<span class="sourceLineNo">381</span>   * The keys relevant to the FileContext layer are extracted at time of<a name="line.381"></a>
+<span class="sourceLineNo">382</span>   * construction. Changes to the config after the call are ignore<a name="line.382"></a>
+<span class="sourceLineNo">383</span>   * by the FileContext layer. <a name="line.383"></a>
+<span class="sourceLineNo">384</span>   * The conf is passed to lower layers like AbstractFileSystem and HDFS which<a name="line.384"></a>
+<span class="sourceLineNo">385</span>   * pick up their own config variables.<a name="line.385"></a>
+<span class="sourceLineNo">386</span>   */<a name="line.386"></a>
+<span class="sourceLineNo">387</span><a name="line.387"></a>
+<span class="sourceLineNo">388</span>  /**<a name="line.388"></a>
+<span class="sourceLineNo">389</span>   * Create a FileContext using the default config read from the<a name="line.389"></a>
+<span class="sourceLineNo">390</span>   * $HADOOP_CONFIG/core.xml, Unspecified key-values for config are defaulted<a name="line.390"></a>
+<span class="sourceLineNo">391</span>   * from core-defaults.xml in the release jar.<a name="line.391"></a>
+<span class="sourceLineNo">392</span>   * <a name="line.392"></a>
+<span class="sourceLineNo">393</span>   * @throws UnsupportedFileSystemException If the file system from the default<a name="line.393"></a>
+<span class="sourceLineNo">394</span>   *           configuration is not supported<a name="line.394"></a>
+<span class="sourceLineNo">395</span>   */<a name="line.395"></a>
+<span class="sourceLineNo">396</span>  public static FileContext getFileContext()<a name="line.396"></a>
+<span class="sourceLineNo">397</span>      throws UnsupportedFileSystemException {<a name="line.397"></a>
+<span class="sourceLineNo">398</span>    return getFileContext(new Configuration());<a name="line.398"></a>
+<span class="sourceLineNo">399</span>  }<a name="line.399"></a>
+<span class="sourceLineNo">400</span><a name="line.400"></a>
+<span class="sourceLineNo">401</span>  /**<a name="line.401"></a>
+<span class="sourceLineNo">402</span>   * @return a FileContext for the local file system using the default config.<a name="line.402"></a>
+<span class="sourceLineNo">403</span>   * @throws UnsupportedFileSystemException If the file system for<a name="line.403"></a>
+<span class="sourceLineNo">404</span>   *           {@link FsConstants#LOCAL_FS_URI} is not supported.<a name="line.404"></a>
+<span class="sourceLineNo">405</span>   */<a name="line.405"></a>
+<span class="sourceLineNo">406</span>  public static FileContext getLocalFSFileContext()<a name="line.406"></a>
+<span class="sourceLineNo">407</span>      throws UnsupportedFileSystemException {<a name="line.407"></a>
+<span class="sourceLineNo">408</span>    return getFileContext(FsConstants.LOCAL_FS_URI);<a name="line.408"></a>
+<span class="sourceLineNo">409</span>  }<a name="line.409"></a>
+<span class="sourceLineNo">410</span><a name="line.410"></a>
+<span class="sourceLineNo">411</span>  /**<a name="line.411"></a>
+<span class="sourceLineNo">412</span>   * Create a FileContext for specified URI using the default config.<a name="line.412"></a>
+<span class="sourceLineNo">413</span>   * <a name="line.413"></a>
+<span class="sourceLineNo">414</span>   * @param defaultFsUri<a name="line.414"></a>
+<span class="sourceLineNo">415</span>   * @return a FileContext with the specified URI as the default FS.<a name="line.415"></a>
+<span class="sourceLineNo">416</span>   * <a name="line.416"></a>
+<span class="sourceLineNo">417</span>   * @throws UnsupportedFileSystemException If the file system for<a name="line.417"></a>
+<span class="sourceLineNo">418</span>   *           &lt;code&gt;defaultFsUri&lt;/code&gt; is not supported<a name="line.418"></a>
+<span class="sourceLineNo">419</span>   */<a name="line.419"></a>
+<span class="sourceLineNo">420</span>  public static FileContext getFileContext(final URI defaultFsUri)<a name="line.420"></a>
+<span class="sourceLineNo">421</span>      throws UnsupportedFileSystemException {<a name="line.421"></a>
+<span class="sourceLineNo">422</span>    return getFileContext(defaultFsUri, new Configuration());<a name="line.422"></a>
+<span class="sourceLineNo">423</span>  }<a name="line.423"></a>
+<span class="sourceLineNo">424</span><a name="line.424"></a>
+<span class="sourceLineNo">425</span>  /**<a name="line.425"></a>
+<span class="sourceLineNo">426</span>   * Create a FileContext for specified default URI using the specified config.<a name="line.426"></a>
+<span class="sourceLineNo">427</span>   * <a name="line.427"></a>
+<span class="sourceLineNo">428</span>   * @param defaultFsUri<a name="line.428"></a>
+<span class="sourceLineNo">429</span>   * @param aConf<a name="line.429"></a>
+<span class="sourceLineNo">430</span>   * @return new FileContext for specified uri<a name="line.430"></a>
+<span class="sourceLineNo">431</span>   * @throws UnsupportedFileSystemException If the file system with specified is<a name="line.431"></a>
+<span class="sourceLineNo">432</span>   *           not supported<a name="line.432"></a>
+<span class="sourceLineNo">433</span>   * @throws RuntimeException If the file system specified is supported but<a name="line.433"></a>
+<span class="sourceLineNo">434</span>   *         could not be instantiated, or if login fails.<a name="line.434"></a>
+<span class="sourceLineNo">435</span>   */<a name="line.435"></a>
+<span class="sourceLineNo">436</span>  public static FileContext getFileContext(final URI defaultFsUri,<a name="line.436"></a>
+<span class="sourceLineNo">437</span>      final Configuration aConf) throws UnsupportedFileSystemException {<a name="line.437"></a>
+<span class="sourceLineNo">438</span>    UserGroupInformation currentUser = null;<a name="line.438"></a>
+<span class="sourceLineNo">439</span>    AbstractFileSystem defaultAfs = null;<a name="line.439"></a>
+<span class="sourceLineNo">440</span>    if (defaultFsUri.getScheme() == null) {<a name="line.440"></a>
+<span class="sourceLineNo">441</span>      return getFileContext(aConf);<a name="line.441"></a>
+<span class="sourceLineNo">442</span>    }<a name="line.442"></a>
+<span class="sourceLineNo">443</span>    try {<a name="line.443"></a>
+<span class="sourceLineNo">444</span>      currentUser = UserGroupInformation.getCurrentUser();<a name="line.444"></a>
+<span class="sourceLineNo">445</span>      defaultAfs = getAbstractFileSystem(currentUser, defaultFsUri, aConf);<a name="line.445"></a>
+<span class="sourceLineNo">446</span>    } catch (UnsupportedFileSystemException ex) {<a name="line.446"></a>
+<span class="sourceLineNo">447</span>      throw ex;<a name="line.447"></a>
+<span class="sourceLineNo">448</span>    } catch (IOException ex) {<a name="line.448"></a>
+<span class="sourceLineNo">449</span>      LOG.error(ex);<a name="line.449"></a>
+<span class="sourceLineNo">450</span>      throw new RuntimeException(ex);<a name="line.450"></a>
+<span class="sourceLineNo">451</span>    }<a name="line.451"></a>
+<span class="sourceLineNo">452</span>    return getFileContext(defaultAfs, aConf);<a name="line.452"></a>
+<span class="sourceLineNo">453</span>  }<a name="line.453"></a>
+<span class="sourceLineNo">454</span><a name="line.454"></a>
+<span class="sourceLineNo">455</span>  /**<a name="line.455"></a>
+<span class="sourceLineNo">456</span>   * Create a FileContext using the passed config. Generally it is better to use<a name="line.456"></a>
+<span class="sourceLineNo">457</span>   * {@link #getFileContext(URI, Configuration)} instead of this one.<a name="line.457"></a>
+<span class="sourceLineNo">458</span>   * <a name="line.458"></a>
 <span class="sourceLineNo">459</span>   * <a name="line.459"></a>
-<span class="sourceLineNo">460</span>   * <a name="line.460"></a>
-<span class="sourceLineNo">461</span>   * @param aConf<a name="line.461"></a>
-<span class="sourceLineNo">462</span>   * @return new FileContext<a name="line.462"></a>
-<span class="sourceLineNo">463</span>   * @throws UnsupportedFileSystemException If file system in the config<a name="line.463"></a>
-<span class="sourceLineNo">464</span>   *           is not supported<a name="line.464"></a>
-<span class="sourceLineNo">465</span>   */<a name="line.465"></a>
-<span class="sourceLineNo">466</span>  public static FileContext getFileContext(final Configuration aConf)<a name="line.466"></a>
-<span class="sourceLineNo">467</span>      throws UnsupportedFileSystemException {<a name="line.467"></a>
-<span class="sourceLineNo">468</span>    final URI defaultFsUri = URI.create(aConf.get(FS_DEFAULT_NAME_KEY,<a name="line.468"></a>
-<span class="sourceLineNo">469</span>        FS_DEFAULT_NAME_DEFAULT));<a name="line.469"></a>
-<span class="sourceLineNo">470</span>    if (   defaultFsUri.getScheme() != null<a name="line.470"></a>
-<span class="sourceLineNo">471</span>        &amp;&amp; !defaultFsUri.getScheme().trim().isEmpty()) {<a name="line.471"></a>
-<span class="sourceLineNo">472</span>      return getFileContext(defaultFsUri, aConf);<a name="line.472"></a>
-<span class="sourceLineNo">473</span>    }<a name="line.473"></a>
-<span class="sourceLineNo">474</span>    throw new UnsupportedFileSystemException(String.format(<a name="line.474"></a>
-<span class="sourceLineNo">475</span>        "%s: URI configured via %s carries no scheme",<a name="line.475"></a>
-<span class="sourceLineNo">476</span>        defaultFsUri, FS_DEFAULT_NAME_KEY));<a name="line.476"></a>
-<span class="sourceLineNo">477</span>  }<a name="line.477"></a>
-<span class="sourceLineNo">478</span><a name="line.478"></a>
-<span class="sourceLineNo">479</span>  /**<a name="line.479"></a>
-<span class="sourceLineNo">480</span>   * @param aConf - from which the FileContext is configured<a name="line.480"></a>
-<span class="sourceLineNo">481</span>   * @return a FileContext for the local file system using the specified config.<a name="line.481"></a>
-<span class="sourceLineNo">482</span>   * <a name="line.482"></a>
-<span class="sourceLineNo">483</span>   * @throws UnsupportedFileSystemException If default file system in the config<a name="line.483"></a>
-<span class="sourceLineNo">484</span>   *           is not supported<a name="line.484"></a>
-<span class="sourceLineNo">485</span>   * <a name="line.485"></a>
-<span class="sourceLineNo">486</span>   */<a name="line.486"></a>
-<span class="sourceLineNo">487</span>  public static FileContext getLocalFSFileContext(final Configuration aConf)<a name="line.487"></a>
-<span class="sourceLineNo">488</span>      throws UnsupportedFileSystemException {<a name="line.488"></a>
-<span class="sourceLineNo">489</span>    return getFileContext(FsConstants.LOCAL_FS_URI, aConf);<a name="line.489"></a>
-<span class="sourceLineNo">490</span>  }<a name="line.490"></a>
-<span class="sourceLineNo">491</span><a name="line.491"></a>
-<span class="sourceLineNo">492</span>  /* This method is needed for tests. */<a name="line.492"></a>
-<span class="sourceLineNo">493</span>  @InterfaceAudience.Private<a name="line.493"></a>
-<span class="sourceLineNo">494</span>  @InterfaceStability.Unstable /* return type will change to AFS once<a name="line.494"></a>
-<span class="sourceLineNo">495</span>                                  HADOOP-6223 is completed */<a name="line.495"></a>
-<span class="sourceLineNo">496</span>  public AbstractFileSystem getDefaultFileSystem() {<a name="line.496"></a>
-<span class="sourceLineNo">497</span>    return defaultFS;<a name="line.497"></a>
-<span class="sourceLineNo">498</span>  }<a name="line.498"></a>
-<span class="sourceLineNo">499</span>  <a name="line.499"></a>
-<span class="sourceLineNo">500</span>  /**<a name="line.500"></a>
-<span class="sourceLineNo">501</span>   * Set the working directory for wd-relative names (such a "foo/bar"). Working<a name="line.501"></a>
-<span class="sourceLineNo">502</span>   * directory feature is provided by simply prefixing relative names with the<a name="line.502"></a>
-<span class="sourceLineNo">503</span>   * working dir. Note this is different from Unix where the wd is actually set<a name="line.503"></a>
-<span class="sourceLineNo">504</span>   * to the inode. Hence setWorkingDir does not follow symlinks etc. This works<a name="line.504"></a>
-<span class="sourceLineNo">505</span>   * better in a distributed environment that has multiple independent roots.<a name="line.505"></a>
-<span class="sourceLineNo">506</span>   * {@link #getWorkingDirectory()} should return what setWorkingDir() set.<a name="line.506"></a>
-<span class="sourceLineNo">507</span>   * <a name="line.507"></a>
-<span class="sourceLineNo">508</span>   * @param newWDir new working directory<a name="line.508"></a>
-<span class="sourceLineNo">509</span>   * @throws IOException <a name="line.509"></a>
-<span class="sourceLineNo">510</span>   * &lt;br&gt;<a name="line.510"></a>
-<span class="sourceLineNo">511</span>   *           NewWdir can be one of:<a name="line.511"></a>
-<span class="sourceLineNo">512</span>   *           &lt;ul&gt;<a name="line.512"></a>
-<span class="sourceLineNo">513</span>   *           &lt;li&gt;relative path: "foo/bar";&lt;/li&gt;<a name="line.513"></a>
-<span class="sourceLineNo">514</span>   *           &lt;li&gt;absolute without scheme: "/foo/bar"&lt;/li&gt;<a name="line.514"></a>
-<span class="sourceLineNo">515</span>   *           &lt;li&gt;fully qualified with scheme: "xx://auth/foo/bar"&lt;/li&gt;<a name="line.515"></a>
-<span class="sourceLineNo">516</span>   *           &lt;/ul&gt;<a name="line.516"></a>
-<span class="sourceLineNo">517</span>   * &lt;br&gt;<a name="line.517"></a>
-<span class="sourceLineNo">518</span>   *           Illegal WDs:<a name="line.518"></a>
-<span class="sourceLineNo">519</span>   *           &lt;ul&gt;<a name="line.519"></a>
-<span class="sourceLineNo">520</span>   *           &lt;li&gt;relative with scheme: "xx:foo/bar"&lt;/li&gt;<a name="line.520"></a>
-<span class="sourceLineNo">521</span>   *           &lt;li&gt;non existent directory&lt;/li&gt;<a name="line.521"></a>
-<span class="sourceLineNo">522</span>   *           &lt;/ul&gt;<a name="line.522"></a>
-<span class="sourceLineNo">523</span>   */<a name="line.523"></a>
-<span class="sourceLineNo">524</span>  public void setWorkingDirectory(final Path newWDir) throws IOException {<a name="line.524"></a>
-<span class="sourceLineNo">525</span>    newWDir.checkNotSchemeWithRelative();<a name="line.525"></a>
-<span class="sourceLineNo">526</span>    /* wd is stored as a fully qualified path. We check if the given <a name="line.526"></a>
-<span class="sourceLineNo">527</span>     * path is not relative first since resolve requires and returns <a name="line.527"></a>
-<span class="sourceLineNo">528</span>     * an absolute path.<a name="line.528"></a>
-<span class="sourceLineNo">529</span>     */  <a name="line.529"></a>
-<span class="sourceLineNo">530</span>    final Path newWorkingDir = new Path(workingDir, newWDir);<a name="line.530"></a>
-<span class="sourceLineNo">531</span>    FileStatus status = getFileStatus(newWorkingDir);<a name="line.531"></a>
-<span class="sourceLineNo">532</span>    if (status.isFile()) {<a name="line.532"></a>
-<span class="sourceLineNo">533</span>      throw new FileNotFoundException("Cannot setWD to a file");<a name="line.533"></a>
-<span class="sourceLineNo">534</span>    }<a name="line.534"></a>
-<span class="sourceLineNo">535</span>    workingDir = newWorkingDir;<a name="line.535"></a>
-<span class="sourceLineNo">536</span>  }<a name="line.536"></a>
-<span class="sourceLineNo">537</span>  <a name="line.537"></a>
-<span class="sourceLineNo">538</span>  /**<a name="line.538"></a>
-<span class="sourceLineNo">539</span>   * Gets the working directory for wd-relative names (such a "foo/bar").<a name="line.539"></a>
-<span class="sourceLineNo">540</span>   */<a name="line.540"></a>
-<span class="sourceLineNo">541</span>  public Path getWorkingDirectory() {<a name="line.541"></a>
-<span class="sourceLineNo">542</span>    return workingDir;<a name="line.542"></a>
-<span class="sourceLineNo">543</span>  }<a name="line.543"></a>
-<span class="sourceLineNo">544</span>  <a name="line.544"></a>
-<span class="sourceLineNo">545</span>  /**<a name="line.545"></a>
-<span class="sourceLineNo">546</span>   * Gets the ugi in the file-context<a name="line.546"></a>
-<span class="sourceLineNo">547</span>   * @return UserGroupInformation<a name="line.547"></a>
-<span class="sourceLineNo">548</span>   */<a name="line.548"></a>
-<span class="sourceLineNo">549</span>  public UserGroupInformation getUgi() {<a name="line.549"></a>
-<span class="sourceLineNo">550</span>    return ugi;<a name="line.550"></a>
-<span class="sourceLineNo">551</span>  }<a name="line.551"></a>
-<span class="sourceLineNo">552</span>  <a name="line.552"></a>
-<span class="sourceLineNo">553</span>  /**<a name="line.553"></a>
-<span class="sourceLineNo">554</span>   * Return the current user's home directory in this file system.<a name="line.554"></a>
-<span class="sourceLineNo">555</span>   * The default implementation returns "/user/$USER/".<a name="line.555"></a>
-<span class="sourceLineNo">556</span>   * @return the home directory<a name="line.556"></a>
-<span class="sourceLineNo">557</span>   */<a name="line.557"></a>
-<span class="sourceLineNo">558</span>  public Path getHomeDirectory() {<a name="line.558"></a>
-<span class="sourceLineNo">559</span>    return defaultFS.getHomeDirectory();<a name="line.559"></a>
-<span class="sourceLineNo">560</span>  }<a name="line.560"></a>
-<span class="sourceLineNo">561</span>  <a name="line.561"></a>
-<span class="sourceLineNo">562</span>  /**<a name="line.562"></a>
-<span class="sourceLineNo">563</span>   * <a name="line.563"></a>
-<span class="sourceLineNo">564</span>   * @return the umask of this FileContext<a name="line.564"></a>
-<span class="sourceLineNo">565</span>   */<a name="line.565"></a>
-<span class="sourceLineNo">566</span>  public FsPermission getUMask() {<a name="line.566"></a>
-<span class="sourceLineNo">567</span>    return umask;<a name="line.567"></a>
-<span class="sourceLineNo">568</span>  }<a name="line.568"></a>
-<span class="sourceLineNo">569</span>  <a name="line.569"></a>
-<span class="sourceLineNo">570</span>  /**<a name="line.570"></a>
-<span class="sourceLineNo">571</span>   * Set umask to the supplied parameter.<a name="line.571"></a>
-<span class="sourceLineNo">572</span>   * @param newUmask  the new umask<a name="line.572"></a>
-<span class="sourceLineNo">573</span>   */<a name="line.573"></a>
-<span class="sourceLineNo">574</span>  public void setUMask(final FsPermission newUmask) {<a name="line.574"></a>
-<span class="sourceLineNo">575</span>    umask = newUmask;<a name="line.575"></a>
-<span class="sourceLineNo">576</span>  }<a name="line.576"></a>
+<span class="sourceLineNo">460</span>   * @param aConf<a name="line.460"></a>
+<span class="sourceLineNo">461</span>   * @return new FileContext<a name="line.461"></a>
+<span class="sourceLineNo">462</span>   * @throws UnsupportedFileSystemException If file system in the config<a name="line.462"></a>
+<span class="sourceLineNo">463</span>   *           is not supported<a name="line.463"></a>
+<span class="sourceLineNo">464</span>   */<a name="line.464"></a>
+<span class="sourceLineNo">465</span>  public static FileContext getFileContext(final Configuration aConf)<a name="line.465"></a>
+<span class="sourceLineNo">466</span>      throws UnsupportedFileSystemException {<a name="line.466"></a>
+<span class="sourceLineNo">467</span>    final URI defaultFsUri = URI.create(aConf.get(FS_DEFAULT_NAME_KEY,<a name="line.467"></a>
+<span class="sourceLineNo">468</span>        FS_DEFAULT_NAME_DEFAULT));<a name="line.468"></a>
+<span class="sourceLineNo">469</span>    if (   defaultFsUri.getScheme() != null<a name="line.469"></a>
+<span class="sourceLineNo">470</span>        &amp;&amp; !defaultFsUri.getScheme().trim().isEmpty()) {<a name="line.470"></a>
+<span class="sourceLineNo">471</span>      return getFileContext(defaultFsUri, aConf);<a name="line.471"></a>
+<span class="sourceLineNo">472</span>    }<a name="line.472"></a>
+<span class="sourceLineNo">473</span>    throw new UnsupportedFileSystemException(String.format(<a name="line.473"></a>
+<span class="sourceLineNo">474</span>        "%s: URI configured via %s carries no scheme",<a name="line.474"></a>
+<span class="sourceLineNo">475</span>        defaultFsUri, FS_DEFAULT_NAME_KEY));<a name="line.475"></a>
+<span class="sourceLineNo">476</span>  }<a name="line.476"></a>
+<span class="sourceLineNo">477</span><a name="line.477"></a>
+<span class="sourceLineNo">478</span>  /**<a name="line.478"></a>
+<span class="sourceLineNo">479</span>   * @param aConf - from which the FileContext is configured<a name="line.479"></a>
+<span class="sourceLineNo">480</span>   * @return a FileContext for the local file system using the specified config.<a name="line.480"></a>
+<span class="sourceLineNo">481</span>   * <a name="line.481"></a>
+<span class="sourceLineNo">482</span>   * @throws UnsupportedFileSystemException If default file system in the config<a name="line.482"></a>
+<span class="sourceLineNo">483</span>   *           is not supported<a name="line.483"></a>
+<span class="sourceLineNo">484</span>   * <a name="line.484"></a>
+<span class="sourceLineNo">485</span>   */<a name="line.485"></a>
+<span class="sourceLineNo">486</span>  public static FileContext getLocalFSFileContext(final Configuration aConf)<a name="line.486"></a>
+<span class="sourceLineNo">487</span>      throws UnsupportedFileSystemException {<a name="line.487"></a>
+<span class="sourceLineNo">488</span>    return getFileContext(FsConstants.LOCAL_FS_URI, aConf);<a name="line.488"></a>
+<span class="sourceLineNo">489</span>  }<a name="line.489"></a>
+<span class="sourceLineNo">490</span><a name="line.490"></a>
+<span class="sourceLineNo">491</span>  /* This method is needed for tests. */<a name="line.491"></a>
+<span class="sourceLineNo">492</span>  @InterfaceAudience.Private<a name="line.492"></a>
+<span class="sourceLineNo">493</span>  @InterfaceStability.Unstable /* return type will change to AFS once<a name="line.493"></a>
+<span class="sourceLineNo">494</span>                                  HADOOP-6223 is completed */<a name="line.494"></a>
+<span class="sourceLineNo">495</span>  public AbstractFileSystem getDefaultFileSystem() {<a name="line.495"></a>
+<span class="sourceLineNo">496</span>    return defaultFS;<a name="line.496"></a>
+<span class="sourceLineNo">497</span>  }<a name="line.497"></a>
+<span class="sourceLineNo">498</span>  <a name="line.498"></a>
+<span class="sourceLineNo">499</span>  /**<a name="line.499"></a>
+<span class="sourceLineNo">500</span>   * Set the working directory for wd-relative names (such a "foo/bar"). Working<a name="line.500"></a>
+<span class="sourceLineNo">501</span>   * directory feature is provided by simply prefixing relative names with the<a name="line.501"></a>
+<span class="sourceLineNo">502</span>   * working dir. Note this is different from Unix where the wd is actually set<a name="line.502"></a>
+<span class="sourceLineNo">503</span>   * to the inode. Hence setWorkingDir does not follow symlinks etc. This works<a name="line.503"></a>
+<span class="sourceLineNo">504</span>   * better in a distributed environment that has multiple independent roots.<a name="line.504"></a>
+<span class="sourceLineNo">505</span>   * {@link #getWorkingDirectory()} should return what setWorkingDir() set.<a name="line.505"></a>
+<span class="sourceLineNo">506</span>   * <a name="line.506"></a>
+<span class="sourceLineNo">507</span>   * @param newWDir new working directory<a name="line.507"></a>
+<span class="sourceLineNo">508</span>   * @throws IOException <a name="line.508"></a>
+<span class="sourceLineNo">509</span>   * &lt;br&gt;<a name="line.509"></a>
+<span class="sourceLineNo">510</span>   *           NewWdir can be one of:<a name="line.510"></a>
+<span class="sourceLineNo">511</span>   *           &lt;ul&gt;<a name="line.511"></a>
+<span class="sourceLineNo">512</span>   *           &lt;li&gt;relative path: "foo/bar";&lt;/li&gt;<a name="line.512"></a>
+<span class="sourceLineNo">513</span>   *           &lt;li&gt;absolute without scheme: "/foo/bar"&lt;/li&gt;<a name="line.513"></a>
+<span class="sourceLineNo">514</span>   *           &lt;li&gt;fully qualified with scheme: "xx://auth/foo/bar"&lt;/li&gt;<a name="line.514"></a>
+<span class="sourceLineNo">515</span>   *           &lt;/ul&gt;<a name="line.515"></a>
+<span class="sourceLineNo">516</span>   * &lt;br&gt;<a name="line.516"></a>
+<span class="sourceLineNo">517</span>   *           Illegal WDs:<a name="line.517"></a>
+<span class="sourceLineNo">518</span>   *           &lt;ul&gt;<a name="line.518"></a>
+<span class="sourceLineNo">519</span>   *           &lt;li&gt;relative with scheme: "xx:foo/bar"&lt;/li&gt;<a name="line.519"></a>
+<span class="sourceLineNo">520</span>   *           &lt;li&gt;non existent directory&lt;/li&gt;<a name="line.520"></a>
+<span class="sourceLineNo">521</span>   *           &lt;/ul&gt;<a name="line.521"></a>
+<span class="sourceLineNo">522</span>   */<a name="line.522"></a>
+<span class="sourceLineNo">523</span>  public void setWorkingDirectory(final Path newWDir) throws IOException {<a name="line.523"></a>
+<span class="sourceLineNo">524</span>    newWDir.checkNotSchemeWithRelative();<a name="line.524"></a>
+<span class="sourceLineNo">525</span>    /* wd is stored as a fully qualified path. We check if the given <a name="line.525"></a>
+<span class="sourceLineNo">526</span>     * path is not relative first since resolve requires and returns <a name="line.526"></a>
+<span class="sourceLineNo">527</span>     * an absolute path.<a name="line.527"></a>
+<span class="sourceLineNo">528</span>     */  <a name="line.528"></a>
+<span class="sourceLineNo">529</span>    final Path newWorkingDir = new Path(workingDir, newWDir);<a name="line.529"></a>
+<span class="sourceLineNo">530</span>    FileStatus status = getFileStatus(newWorkingDir);<a name="line.530"></a>
+<span class="sourceLineNo">531</span>    if (status.isFile()) {<a name="line.531"></a>
+<span class="sourceLineNo">532</span>      throw new FileNotFoundException("Cannot setWD to a file");<a name="line.532"></a>
+<span class="sourceLineNo">533</span>    }<a name="line.533"></a>
+<span class="sourceLineNo">534</span>    workingDir = newWorkingDir;<a name="line.534"></a>
+<span class="sourceLineNo">535</span>  }<a name="line.535"></a>
+<span class="sourceLineNo">536</span>  <a name="line.536"></a>
+<span class="sourceLineNo">537</span>  /**<a name="line.537"></a>
+<span class="sourceLineNo">538</span>   * Gets the working directory for wd-relative names (such a "foo/bar").<a name="line.538"></a>
+<span class="sourceLineNo">539</span>   */<a name="line.539"></a>
+<span class="sourceLineNo">540</span>  public Path getWorkingDirectory() {<a name="line.540"></a>
+<span class="sourceLineNo">541</span>    return workingDir;<a name="line.541"></a>
+<span class="sourceLineNo">542</span>  }<a name="line.542"></a>
+<span class="sourceLineNo">543</span>  <a name="line.543"></a>
+<span class="sourceLineNo">544</span>  /**<a name="line.544"></a>
+<span class="sourceLineNo">545</span>   * Gets the ugi in the file-context<a name="line.545"></a>
+<span class="sourceLineNo">546</span>   * @return UserGroupInformation<a name="line.546"></a>
+<span class="sourceLineNo">547</span>   */<a name="line.547"></a>
+<span class="sourceLineNo">548</span>  public UserGroupInformation getUgi() {<a name="line.548"></a>
+<span class="sourceLineNo">549</span>    return ugi;<a name="line.549"></a>
+<span class="sourceLineNo">550</span>  }<a name="line.550"></a>
+<span class="sourceLineNo">551</span>  <a name="line.551"></a>
+<span class="sourceLineNo">552</span>  /**<a name="line.552"></a>
+<span class="sourceLineNo">553</span>   * Return the current user's home directory in this file system.<a name="line.553"></a>
+<span class="sourceLineNo">554</span>   * The default implementation returns "/user/$USER/".<a name="line.554"></a>
+<span class="sourceLineNo">555</span>   * @return the home directory<a name="line.555"></a>
+<span class="sourceLineNo">556</span>   */<a name="line.556"></a>
+<span class="sourceLineNo">557</span>  public Path getHomeDirectory() {<a name="line.557"></a>
+<span class="sourceLineNo">558</span>    return defaultFS.getHomeDirectory();<a name="line.558"></a>
+<span class="sourceLineNo">559</span>  }<a name="line.559"></a>
+<span class="sourceLineNo">560</span>  <a name="line.560"></a>
+<span class="sourceLineNo">561</span>  /**<a name="line.561"></a>
+<span class="sourceLineNo">562</span>   * <a name="line.562"></a>
+<span class="sourceLineNo">563</span>   * @return the umask of this FileContext<a name="line.563"></a>
+<span class="sourceLineNo">564</span>   */<a name="line.564"></a>
+<span class="sourceLineNo">565</span>  public FsPermission getUMask() {<a name="line.565"></a>
+<span class="sourceLineNo">566</span>    return FsPermission.getUMask(conf);<a name="line.566"></a>
+<span class="sourceLineNo">567</span>  }<a name="line.567"></a>
+<span class="sourceLineNo">568</span>  <a name="line.568"></a>
+<span class="sourceLineNo">569</span>  /**<a name="line.569"></a>
+<span class="sourceLineNo">570</span>   * Set umask to the supplied parameter.<a name="line.570"></a>
+<span class="sourceLineNo">571</span>   * @param newUmask  the new umask<a name="line.571"></a>
+<span class="sourceLineNo">572</span>   */<a name="line.572"></a>
+<span class="sourceLineNo">573</span>  public void setUMask(final FsPermission newUmask) {<a name="line.573"></a>
+<span class="sourceLineNo">574</span>    FsPermission.setUMask(conf, newUmask);<a name="line.574"></a>
+<span class="sourceLineNo">575</span>  }<a name="line.575"></a>
+<span class="sourceLineNo">576</span>  <a name="line.576"></a>
 <span class="sourceLineNo">577</span>  <a name="line.577"></a>
-<span class="sourceLineNo">578</span>  <a name="line.578"></a>
-<span class="sourceLineNo">579</span>  /**<a name="line.579"></a>
-<span class="sourceLineNo">580</span>   * Resolve the path following any symlinks or mount points<a name="line.580"></a>
-<span class="sourceLineNo">581</span>   * @param f to be resolved<a name="line.581"></a>
-<span class="sourceLineNo">582</span>   * @return fully qualified resolved path<a name="line.582"></a>
-<span class="sourceLineNo">583</span>   * <a name="line.583"></a>
-<span class="sourceLineNo">584</span>   * @throws FileNotFoundException  If &lt;code&gt;f&lt;/code&gt; does not exist<a name="line.584"></a>
-<span class="sourceLineNo">585</span>   * @throws AccessControlException if access denied<a name="line.585"></a>
-<span class="sourceLineNo">586</span>   * @throws IOException If an IO Error occurred<a name="line.586"></a>
-<span class="sourceLineNo">587</span>   * <a name="line.587"></a>
-<span class="sourceLineNo">588</span>   * Exceptions applicable to file systems accessed over RPC:<a name="line.588"></a>
-<span class="sourceLineNo">589</span>   * @throws RpcClientException If an exception occurred in the RPC client<a name="line.589"></a>
-<span class="sourceLineNo">590</span>   * @throws RpcServerException If an exception occurred in the RPC server<a name="line.590"></a>
-<span class="sourceLineNo">591</span>   * @throws UnexpectedServerException If server implementation throws<a name="line.591"></a>
-<span class="sourceLineNo">592</span>   *           undeclared exception to RPC server<a name="line.592"></a>
-<span class="sourceLineNo">593</span>   * <a name="line.593"></a>
-<span class="sourceLineNo">594</span>   * RuntimeExceptions:<a name="line.594"></a>
-<span class="sourceLineNo">595</span>   * @throws InvalidPathException If path &lt;code&gt;f&lt;/code&gt; is not valid<a name="line.595"></a>
-<span class="sourceLineNo">596</span>   */<a name="line.596"></a>
-<span class="sourceLineNo">597</span>  public Path resolvePath(final Path f) throws FileNotFoundException,<a name="line.597"></a>
-<span class="sourceLineNo">598</span>      UnresolvedLinkException, AccessControlException, IOException {<a name="line.598"></a>
-<span class="sourceLineNo">599</span>    return resolve(f);<a name="line.599"></a>
-<span class="sourceLineNo">600</span>  }<a name="line.600"></a>
-<span class="sourceLineNo">601</span>  <a name="line.601"></a>
-<span class="sourceLineNo">602</span>  /**<a name="line.602"></a>
-<span class="sourceLineNo">603</span>   * Make the path fully qualified if it is isn't. <a name="line.603"></a>
-<span class="sourceLineNo">604</span>   * A Fully-qualified path has scheme and authority specified and an absolute<a name="line.604"></a>
-<span class="sourceLineNo">605</span>   * path.<a name="line.605"></a>
-<span class="sourceLineNo">606</span>   * Use the default file system and working dir in this FileContext to qualify.<a name="line.606"></a>
-<span class="sourceLineNo">607</span>   * @param path<a name="line.607"></a>
-<span class="sourceLineNo">608</span>   * @return qualified path<a name="line.608"></a>
-<span class="sourceLineNo">609</span>   */<a name="line.609"></a>
-<span class="sourceLineNo">610</span>  public Path makeQualified(final Path path) {<a name="line.610"></a>
-<span class="sourceLineNo">611</span>    return path.makeQualified(defaultFS.getUri(), getWorkingDirectory());<a name="line.611"></a>
-<span class="sourceLineNo">612</span>  }<a name="line.612"></a>
-<span class="sourceLineNo">613</span><a name="line.613"></a>
-<span class="sourceLineNo">614</span>  /**<a name="line.614"></a>
-<span class="sourceLineNo">615</span>   * Create or overwrite file on indicated path and returns an output stream for<a name="line.615"></a>
-<span class="sourceLineNo">616</span>   * writing into the file.<a name="line.616"></a>
-<span class="sourceLineNo">617</span>   * <a name="line.617"></a>
-<span class="sourceLineNo">618</span>   * @param f the file name to open<a name="line.618"></a>
-<span class="sourceLineNo">619</span>   * @param createFlag gives the semantics of create; see {@link CreateFlag}<a name="line.619"></a>
-<span class="sourceLineNo">620</span>   * @param opts file creation options; see {@link Options.CreateOpts}.<a name="line.620"></a>
-<span class="sourceLineNo">621</span>   *          &lt;ul&gt;<a name="line.621"></a>
-<span class="sourceLineNo">622</span>   *          &lt;li&gt;Progress - to report progress on the operation - default null<a name="line.622"></a>
-<span class="sourceLineNo">623</span>   *          &lt;li&gt;Permission - umask is applied against permission: default is<a name="line.623"></a>
-<span class="sourceLineNo">624</span>   *          FsPermissions:getDefault()<a name="line.624"></a>
-<span class="sourceLineNo">625</span>   * <a name="line.625"></a>
-<span class="sourceLineNo">626</span>   *          &lt;li&gt;CreateParent - create missing parent path; default is to not<a name="line.626"></a>
-<span class="sourceLineNo">627</span>   *          to create parents<a name="line.627"></a>
-<span class="sourceLineNo">628</span>   *          &lt;li&gt;The defaults for the following are SS defaults of the file<a name="line.628"></a>
-<span class="sourceLineNo">629</span>   *          server implementing the target path. Not all parameters make sense<a name="line.629"></a>
-<span class="sourceLineNo">630</span>   *          for all kinds of file system - eg. localFS ignores Blocksize,<a name="line.630"></a>
-<span class="sourceLineNo">631</span>   *          replication, checksum<a name="line.631"></a>
-<span class="sourceLineNo">632</span>   *          &lt;ul&gt;<a name="line.632"></a>
-<span class="sourceLineNo">633</span>   *          &lt;li&gt;BufferSize - buffersize used in FSDataOutputStream<a name="line.633"></a>
-<span class="sourceLineNo">634</span>   *          &lt;li&gt;Blocksize - block size for file blocks<a name="line.634"></a>
-<span class="sourceLineNo">635</span>   *          &lt;li&gt;ReplicationFactor - replication for blocks<a name="line.635"></a>
-<span class="sourceLineNo">636</span>   *          &lt;li&gt;ChecksumParam - Checksum parameters. server default is used<a name="line.636"></a>
-<span class="sourceLineNo">637</span>   *          if not specified.<a name="line.637"></a>
+<span class="sourceLineNo">578</span>  /**<a name="line.578"></a>
+<span class="sourceLineNo">579</span>   * Resolve the path following any symlinks or mount points<a name="line.579"></a>
+<span class="sourceLineNo">580</span>   * @param f to be resolved<a name="line.580"></a>
+<span class="sourceLineNo">581</span>   * @return fully qualified resolved path<a name="line.581"></a>
+<span class="sourceLineNo">582</span>   * <a name="line.582"></a>
+<span class="sourceLineNo">583</span>   * @throws FileNotFoundException  If &lt;code&gt;f&lt;/code&gt; does not exist<a name="line.583"></a>
+<span class="sourceLineNo">584</span>   * @throws AccessControlException if access denied<a name="line.584"></a>
+<span class="sourceLineNo">585</span>   * @throws IOException If an IO Error occurred<a name="line.585"></a>
+<span class="sourceLineNo">586</span>   * <a name="line.586"></a>
+<span class="sourceLineNo">587</span>   * Exceptions applicable to file systems accessed over RPC:<a name="line.587"></a>
+<span class="sourceLineNo">588</span>   * @throws RpcClientException If an exception occurred in the RPC client<a name="line.588"></a>
+<span class="sourceLineNo">589</span>   * @throws RpcServerException If an exception occurred in the RPC server<a name="line.589"></a>
+<span class="sourceLineNo">590</span>   * @throws UnexpectedServerException If server implementation throws<a name="line.590"></a>
+<span class="sourceLineNo">591</span>   *           undeclared exception to RPC server<a name="line.591"></a>
+<span class="sourceLineNo">592</span>   * <a name="line.592"></a>
+<span class="sourceLineNo">593</span>   * RuntimeExceptions:<a name="line.593"></a>
+<span class="sourceLineNo">594</span>   * @throws InvalidPathException If path &lt;code&gt;f&lt;/code&gt; is not valid<a name="line.594"></a>
+<span class="sourceLineNo">595</span>   */<a name="line.595"></a>
+<span class="sourceLineNo">596</span>  public Path resolvePath(final Path f) throws FileNotFoundException,<a name="line.596"></a>
+<span class="sourceLineNo">597</span>      UnresolvedLinkException, AccessControlException, IOException {<a name="line.597"></a>
+<span class="sourceLineNo">598</span>    return resolve(f);<a name="line.598"></a>
+<span class="sourceLineNo">599</span>  }<a name="line.599"></a>
+<span class="sourceLineNo">600</span>  <a name="line.600"></a>
+<span class="sourceLineNo">601</span>  /**<a name="line.601"></a>
+<span class="sourceLineNo">602</span>   * Make the path fully qualified if it is isn't. <a name="line.602"></a>
+<span class="sourceLineNo">603</span>   * A Fully-qualified path has scheme and authority specified and an absolute<a name="line.603"></a>
+<span class="sourceLineNo">604</span>   * path.<a name="line.604"></a>
+<span class="sourceLineNo">605</span>   * Use the default file system and working dir in this FileContext to qualify.<a name="line.605"></a>
+<span class="sourceLineNo">606</span>   * @param path<a name="line.606"></a>
+<span class="sourceLineNo">607</span>   * @return qualified path<a name="line.607"></a>
+<span class="sourceLineNo">608</span>   */<a name="line.608"></a>
+<span class="sourceLineNo">609</span>  public Path makeQualified(final Path path) {<a name="line.609"></a>
+<span class="sourceLineNo">610</span>    return path.makeQualified(defaultFS.getUri(), getWorkingDirectory());<a name="line.610"></a>
+<span class="sourceLineNo">611</span>  }<a name="line.611"></a>
+<span class="sourceLineNo">612</span><a name="line.612"></a>
+<span class="sourceLineNo">613</span>  /**<a name="line.613"></a>
+<span class="sourceLineNo">614</span>   * Create or overwrite file on indicated path and returns an output stream for<a name="line.614"></a>
+<span class="sourceLineNo">615</span>   * writing into the file.<a name="line.615"></a>
+<span class="sourceLineNo">616</span>   * <a name="line.616"></a>
+<span class="sourceLineNo">617</span>   * @param f the file name to open<a name="line.617"></a>
+<span class="sourceLineNo">618</span>   * @param createFlag gives the semantics of create; see {@link CreateFlag}<a name="line.618"></a>
+<span class="sourceLineNo">619</span>   * @param opts file creation options; see {@link Options.CreateOpts}.<a name="line.619"></a>
+<span class="sourceLineNo">620</span>   *          &lt;ul&gt;<a name="line.620"></a>
+<span class="sourceLineNo">621</span>   *          &lt;li&gt;Progress - to report progress on the operation - default null<a name="line.621"></a>
+<span class="sourceLineNo">622</span>   *          &lt;li&gt;Permission - umask is applied against permission: default is<a name="line.622"></a>
+<span class="sourceLineNo">623</span>   *          FsPermissions:getDefault()<a name="line.623"></a>
+<span class="sourceLineNo">624</span>   * <a name="line.624"></a>
+<span class="sourceLineNo">625</span>   *          &lt;li&gt;CreateParent - create missing parent path; default is to not<a name="line.625"></a>
+<span class="sourceLineNo">626</span>   *          to create parents<a name="line.626"></a>
+<span class="sourceLineNo">627</span>   *          &lt;li&gt;The defaults for the following are SS defaults of the file<a name="line.627"></a>
+<span class="sourceLineNo">628</span>   *          server implementing the target path. Not all parameters make sense<a name="line.628"></a>
+<span class="sourceLineNo">629</span>   *          for all kinds of file system - eg. localFS ignores Blocksize,<a name="line.629"></a>
+<span class="sourceLineNo">630</span>   *          replication, checksum<a name="line.630"></a>
+<span class="sourceLineNo">631</span>   *          &lt;ul&gt;<a name="line.631"></a>
+<span class="sourceLineNo">632</span>   *          &lt;li&gt;BufferSize - buffersize used in FSDataOutputStream<a name="line.632"></a>
+<span class="sourceLineNo">633</span>   *          &lt;li&gt;Blocksize - block size for file blocks<a name="line.633"></a>
+<span class="sourceLineNo">634</span>   *          &lt;li&gt;ReplicationFactor - replication for blocks<a name="line.634"></a>
+<span class="sourceLineNo">635</span>   *          &lt;li&gt;ChecksumParam - Checksum parameters. server default is used<a name="line.635"></a>
+<span class="sourceLineNo">636</span>   *          if not specified.<a name="line.636"></a>
+<span class="sourceLineNo">637</span>   *          &lt;/ul&gt;<a name="line.637"></a>
 <span class="sourceLineNo">638</span>   *          &lt;/ul&gt;<a name="line.638"></a>
-<span class="sourceLineNo">639</span>   *          &lt;/ul&gt;<a name="line.639"></a>
-<span class="sourceLineNo">640</span>   * <a name="line.640"></a>
-<span class="sourceLineNo">641</span>   * @return {@link FSDataOutputStream} for created file<a name="line.641"></a>
-<span class="sourceLineNo">642</span>   * <a name="line.642"></a>
-<span class="sourceLineNo">643</span>   * @throws AccessControlException If access is denied<a name="line.643"></a>
-<span class="sourceLineNo">644</span>   * @throws FileAlreadyExistsException If file &lt;code&gt;f&lt;/code&gt; already exists<a name="line.644"></a>
-<span class="sourceLineNo">645</span>   * @throws FileNotFoundException If parent of &lt;code&gt;f&lt;/code&gt; does not exist<a name="line.645"></a>
-<span class="sourceLineNo">646</span>   *           and &lt;code&gt;createParent&lt;/code&gt; is false<a name="line.646"></a>
-<span class="sourceLineNo">647</span>   * @throws ParentNotDirectoryException If parent of &lt;code&gt;f&lt;/code&gt; is not a<a name="line.647"></a>
-<span class="sourceLineNo">648</span>   *           directory.<a name="line.648"></a>
-<span class="sourceLineNo">649</span>   * @throws UnsupportedFileSystemException If file system for &lt;code&gt;f&lt;/code&gt; is<a name="line.649"></a>
-<span class="sourceLineNo">650</span>   *           not supported<a name="line.650"></a>
-<span class="sourceLineNo">651</span>   * @throws IOException If an I/O error occurred<a name="line.651"></a>
-<span class="sourceLineNo">652</span>   * <a name="line.652"></a>
-<span class="sourceLineNo">653</span>   * Exceptions applicable to file systems accessed over RPC:<a name="line.653"></a>
-<span class="sourceLineNo">654</span>   * @throws RpcClientException If an exception occurred in the RPC client<a name="line.654"></a>
-<span class="sourceLineNo">655</span>   * @throws RpcServerException If an exception occurred in the RPC server<a name="line.655"></a>
-<span class="sourceLineNo">656</span>   * @throws UnexpectedServerException If server implementation throws<a name="line.656"></a>
-<span class="sourceLineNo">657</span>   *           undeclared exception to RPC server<a name="line.657"></a>
-<span class="sourceLineNo">658</span>   * <a name="line.658"></a>
-<span class="sourceLineNo">659</span>   * RuntimeExceptions:<a name="line.659"></a>
-<span class="sourceLineNo">660</span>   * @throws InvalidPathException If path &lt;code&gt;f&lt;/code&gt; is not valid<a name="line.660"></a>
-<span class="sourceLineNo">661</span>   */<a name="line.661"></a>
-<span class="sourceLineNo">662</span>  public FSDataOutputStream create(final Path f,<a name="line.662"></a>
-<span class="sourceLineNo">663</span>      final EnumSet&lt;CreateFlag&gt; createFlag, Options.CreateOpts... opts)<a name="line.663"></a>
-<span class="sourceLineNo">664</span>      throws AccessControlException, FileAlreadyExistsException,<a name="line.664"></a>
-<span class="sourceLineNo">665</span>      FileNotFoundException, ParentNotDirectoryException,<a name="line.665"></a>
-<span class="sourceLineNo">666</span>      UnsupportedFileSystemException, IOException {<a name="line.666"></a>
-<span class="sourceLineNo">667</span>    Path absF = fixRelativePart(f);<a name="line.667"></a>
-<span class="sourceLineNo">668</span><a name="line.668"></a>
-<span class="sourceLineNo">669</span>    // If one of the options is a permission, extract it &amp; apply umask<a name="line.669"></a>
-<span class="sourceLineNo">670</span>    // If not, add a default Perms and apply umask;<a name="line.670"></a>
-<span class="sourceLineNo">671</span>    // AbstractFileSystem#create<a name="line.671"></a>
-<span class="sourceLineNo">672</span><a name="line.672"></a>
-<span class="sourceLineNo">673</span>    CreateOpts.Perms permOpt = CreateOpts.getOpt(CreateOpts.Perms.class, opts);<a name="line.673"></a>
-<span class="sourceLineNo">674</span>    FsPermission permission = (permOpt != null) ? permOpt.getValue() :<a name="line.674"></a>
-<span class="sourceLineNo">675</span>                                      FILE_DEFAULT_PERM;<a name="line.675"></a>
-<span class="sourceLineNo">676</span>    permission = permission.applyUMask(umask);<a name="line.676"></a>
-<span class="sourceLineNo">677</span><a name="line.677"></a>
-<span class="sourceLineNo">678</span>    final CreateOpts[] updatedOpts = <a name="line.678"></a>
-<span class="sourceLineNo">679</span>                      CreateOpts.setOpt(CreateOpts.perms(permission), opts);<a name="line.679"></a>
-<span class="sourceLineNo">680</span>    return new FSLinkResolver&lt;FSDataOutputStream&gt;() {<a name="line.680"></a>
-<span class="sourceLineNo">681</span>      @Override<a name="line.681"></a>
-<span class="sourceLineNo">682</span>      public FSDataOutputStream next(final AbstractFileSystem fs, final Path p) <a name="line.682"></a>
-<span class="sourceLineNo">683</span>        throws IOException {<a name="line.683"></a>
-<span class="sourceLineNo">684</span>        return fs.create(p, createFlag, updatedOpts);<a name="line.684"></a>
-<span class="sourceLineNo">685</span>      }<a name="line.685"></a>
-<span class="sourceLineNo">686</span>    }.resolve(this, absF);<a name="line.686"></a>
-<span class="sourceLineNo">687</span>  }<a name="line.687"></a>
-<span class="sourceLineNo">688</span><a name="line.688"></a>
-<span class="sourceLineNo">689</span>  /**<a name="line.689"></a>
-<span class="sourceLineNo">690</span>   * Make(create) a directory and all the non-existent parents.<a name="line.690"></a>
-<span class="sourceLineNo">691</span>   * <a name="line.691"></a>
-<span class="sourceLineNo">692</span>   * @param dir - the dir to make<a name="line.692"></a>
-<span class="sourceLineNo">693</span>   * @param permission - permissions is set permission&amp;~umask<a name="line.693"></a>
-<span class="sourceLineNo">694</span>   * @param createParent - if true then missing parent dirs are created if false<a name="line.694"></a>
-<span class="sourceLineNo">695</span>   *          then parent must exist<a name="line.695"></a>
-<span class="sourceLineNo">696</span>   * <a name="line.696"></a>
-<span class="sourceLineNo">697</span>   * @throws AccessControlException If access is denied<a name="line.697"></a>
-<span class="sourceLineNo">698</span>   * @throws FileAlreadyExistsException If directory &lt;code&gt;dir&lt;/code&gt; already<a name="line.698"></a>
-<span class="sourceLineNo">699</span>   *           exists<a name="line.699"></a>
-<span class="sourceLineNo">700</span>   * @throws FileNotFoundException If parent of &lt;code&gt;dir&lt;/code&gt; does not exist<a name="line.700"></a>
-<span class="sourceLineNo">701</span>   *           and &lt;code&gt;createParent&lt;/code&gt; is false<a name="line.701"></a>
-<span class="sourceLineNo">702</span>   * @throws ParentNotDirectoryException If parent of &lt;code&gt;dir&lt;/code&gt; is not a<a name="line.702"></a>
-<span class="sourceLineNo">703</span>   *           directory<a name="line.703"></a>
-<span class="sourceLineNo">704</span>   * @throws UnsupportedFileSystemException If file system for &lt;code&gt;dir&lt;/code&gt;<a name="line.704"></a>
-<span class="sourceLineNo">705</span>   *         is not supported<a name="line.705"></a>
-<span class="sourceLineNo">706</span>   * @throws IOException If an I/O error occurred<a name="line.706"></a>
-<span class="sourceLineNo">707</span>   * <a name="line.707"></a>
-<span class="sourceLineNo">708</span>   * Exceptions applicable to file systems accessed over RPC:<a name="line.708"></a>
-<span class="sourceLineNo">709</span>   * @throws RpcClientException If an exception occurred in the RPC client<a name="line.709"></a>
-<span class="sourceLineNo">710</span>   * @throws UnexpectedServerException If server implementation throws <a name="line.710"></a>
-<span class="sourceLineNo">711</span>   *           undeclared exception to RPC server<a name="line.711"></a>
-<span class="sourceLineNo">712</span>   * <a name="line.712"></a>
-<span class="sourceLineNo">713</span>   * RuntimeExceptions:<a name="line.713"></a>
-<span class="sourceLineNo">714</span>   * @throws InvalidPathException If path &lt;code&gt;dir&lt;/code&gt; is not valid<a name="line.714"></a>
-<span class="sourceLineNo">715</span>   */<a name="line.715"></a>
-<span class="sourceLineNo">716</span>  public void mkdir(final Path dir, final FsPermission permission,<a name="line.716"></a>
-<span class="sourceLineNo">717</span>      final boolean createParent) throws AccessControlException,<a name="line.717"></a>
-<span class="sourceLineNo">718</span>      FileAlreadyExistsException, FileNotFoundException,<a name="line.718"></a>
-<span class="sourceLineNo">719</span>      ParentNotDirectoryException, UnsupportedFileSystemException, <a name="line.719"></a>
-<span class="sourceLineNo">720</span>      IOException {<a name="line.720"></a>
-<span class="sourceLineNo">721</span>    final Path absDir = fixRelativePart(dir);<a name="line.721"></a>
-<span class="sourceLineNo">722</span>    final FsPermission absFerms = (permission == null ? <a name="line.722"></a>
-<span class="sourceLineNo">723</span>          FsPermission.getDirDefault() : permission).applyUMask(umask);<a name="line.723"></a>
+<span class="sourceLineNo">639</span>   * <a name="line.639"></a>
+<span class="sourceLineNo">640</span>   * @return {@link FSDataOutputStream} for created file<a name="line.640"></a>
+<span class="sourceLineNo">641</span>   * <a name="line.641"></a>
+<span class="sourceLineNo">642</span>   * @throws AccessControlException If access is denied<a name="line.642"></a>
+<span class="sourceLineNo">643</span>   * @throws FileAlreadyExistsException If file &lt;code&gt;f&lt;/code&gt; already exists<a name="line.643"></a>
+<span class="sourceLineNo">644</span>   * @throws FileNotFoundException If parent of &lt;code&gt;f&lt;/code&gt; does not exist<a name="line.644"></a>
+<span class="sourceLineNo">645</span>   *           and &lt;code&gt;createParent&lt;/code&gt; is false<a name="line.645"></a>
+<span class="sourceLineNo">646</span>   * @throws ParentNotDirectoryException If parent of &lt;code&gt;f&lt;/code&gt; is not a<a name="line.646"></a>
+<span class="sourceLineNo">647</span>   *           directory.<a name="line.647"></a>
+<span class="sourceLineNo">648</span>   * @throws UnsupportedFileSystemException If file system for &lt;code&gt;f&lt;/code&gt; is<a name="line.648"></a>
+<span class="sourceLineNo">649</span>   *           not supported<a name="line.649"></a>
+<span class="sourceLineNo">650</span>   * @throws IOException If an I/O error occurred<a name="line.650"></a>
+<span class="sourceLineNo">651</span>   * <a name="line.651"></a>
+<span class="sourceLineNo">652</span>   * Exceptions applicable to file systems accessed over RPC:<a name="line.652"></a>
+<span class="sourceLineNo">653</span>   * @throws RpcClientException If an exception occurred in the RPC client<a name="line.653"></a>
+<span class="sourceLineNo">654</span>   * @throws RpcServerException If an exception occurred in the RPC server<a name="line.654"></a>
+<span class="sourceLineNo">655</span>   * @throws UnexpectedServerException If server implementation throws<a name="line.655"></a>
+<span class="sourceLineNo">656</span>   *           undeclared exception to RPC server<a name="line.656"></a>
+<span class="sourceLineNo">657</span>   * <a name="line.657"></a>
+<span class="sourceLineNo">658</span>   * RuntimeExceptions:<a name="line.658"></a>
+<span class="sourceLineNo">659</span>   * @throws InvalidPathException If path &lt;code&gt;f&lt;/code&gt; is not valid<a name="line.659"></a>
+<span class="sourceLineNo">660</span>   */<a name="line.660"></a>
+<span class="sourceLineNo">661</span>  public FSDataOutputStream create(final Path f,<a name="line.661"></a>
+<span class="sourceLineNo">662</span>      final EnumSet&lt;CreateFlag&gt; createFlag, Options.CreateOpts... opts)<a name="line.662"></a>
+<span class="sourceLineNo">663</span>      throws AccessControlException, FileAlreadyExistsException,<a name="line.663"></a>
+<span class="sourceLineNo">664</span>      FileNotFoundException, ParentNotDirectoryException,<a name="line.664"></a>
+<span class="sourceLineNo">665</span>      UnsupportedFileSystemException, IOException {<a name="line.665"></a>
+<span class="sourceLineNo">666</span>    Path absF = fixRelativePart(f);<a name="line.666"></a>
+<span class="sourceLineNo">667</span><a name="line.667"></a>
+<span class="sourceLineNo">668</span>    // If one of the options is a permission, extract it &amp; apply umask<a name="line.668"></a>
+<span class="sourceLineNo">669</span>    // If not, add a default Perms and apply umask;<a name="line.669"></a>
+<span class="sourceLineNo">670</span>    // AbstractFileSystem#create<a name="line.670"></a>
+<span class="sourceLineNo">671</span><a name="line.671"></a>
+<span class="sourceLineNo">672</span>    CreateOpts.Perms permOpt = CreateOpts.getOpt(CreateOpts.Perms.class, opts);<a name="line.672"></a>
+<span class="sourceLineNo">673</span>    FsPermission permission = (permOpt != null) ? permOpt.getValue() :<a name="line.673"></a>
+<span class="sourceLineNo">674</span>                                      FILE_DEFAULT_PERM;<a name="line.674"></a>
+<span class="sourceLineNo">675</span>    permission = FsCreateModes.applyUMask(permission, getUMask());<a name="line.675"></a>
+<span class="sourceLineNo">676</span><a name="line.676"></a>
+<span class="sourceLineNo">677</span>    final CreateOpts[] updatedOpts = <a name="line.677"></a>
+<span class="sourceLineNo">678</span>                      CreateOpts.setOpt(CreateOpts.perms(permission), opts);<a name="line.678"></a>
+<span class="sourceLineNo">679</span>    return new FSLinkResolver&lt;FSDataOutputStream&gt;() {<a name="line.679"></a>
+<span class="sourceLineNo">680</span>      @Override<a name="line.680"></a>
+<span class="sourceLineNo">681</span>      public FSDataOutputStream next(final AbstractFileSystem fs, final Path p) <a name="line.681"></a>
+<span class="sourceLineNo">682</span>        throws IOException {<a name="line.682"></a>
+<span class="sourceLineNo">683</span>        return fs.create(p, createFlag, updatedOpts);<a name="line.683"></a>
+<span class="sourceLineNo">684</span>      }<a name="line.684"></a>
+<span class="sourceLineNo">685</span>    }.resolve(this, absF);<a name="line.685"></a>
+<span class="sourceLineNo">686</span>  }<a name="line.686"></a>
+<span class="sourceLineNo">687</span><a name="line.687"></a>
+<span class="sourceLineNo">688</span>  /**<a name="line.688"></a>
+<span class="sourceLineNo">689</span>   * Make(create) a directory and all the non-existent parents.<a name="line.689"></a>
+<span class="sourceLineNo">690</span>   * <a name="line.690"></a>
+<span class="sourceLineNo">691</span>   * @param dir - the dir to make<a name="line.691"></a>
+<span class="sourceLineNo">692</span>   * @param permission - permissions is set permission&amp;~umask<a name="line.692"></a>
+<span class="sourceLineNo">693</span>   * @param createParent - if true then missing parent dirs are created if false<a name="line.693"></a>
+<span class="sourceLineNo">694</span>   *          then parent must exist<a name="line.694"></a>
+<span class="sourceLineNo">695</span>   * <a name="line.695"></a>
+<span class="sourceLineNo">696</span>   * @throws AccessControlException If access is denied<a name="line.696"></a>
+<span class="sourceLineNo">697</span>   * @throws FileAlreadyExistsException If directory &lt;code&gt;dir&lt;/code&gt; already<a name="line.697"></a>
+<span class="sourceLineNo">698</span>   *           exists<a name="line.698"></a>
+<span class="sourceLineNo">699</span>   * @throws FileNotFoundException If parent of &lt;code&gt;dir&lt;/code&gt; does not exist<a name="line.699"></a>
+<span class="sourceLineNo">700</span>   *           and &lt;code&gt;createParent&lt;/code&gt; is false<a name="line.700"></a>
+<span class="sourceLineNo">701</span>   * @throws ParentNotDirectoryException If parent of &lt;code&gt;dir&lt;/code&gt; is not a<a name="line.701"></a>
+<span class="sourceLineNo">702</span>   *           directory<a name="line.702"></a>
+<span class="sourceLineNo">703</span>   * @throws UnsupportedFileSystemException If file system for &lt;code&gt;dir&lt;/code&gt;<a name="line.703"></a>
+<span class="sourceLineNo">704</span>   *         is not supported<a name="line.704"></a>
+<span class="sourceLineNo">705</span>   * @throws IOException If an I/O error occurred<a name="line.705"></a>
+<span class="sourceLineNo">706</span>   * <a name="line.706"></a>
+<span class="sourceLineNo">707</span>   * Exceptions applicable to file systems accessed over RPC:<a name="line.707"></a>
+<span class="sourceLineNo">708</span>   * @throws RpcClientException If an exception occurred in the RPC client<a name="line.708"></a>
+<span class="sourceLineNo">709</span>   * @throws UnexpectedServerException If server implementation throws <a name="line.709"></a>
+<span class="sourceLineNo">710</span>   *           undeclared exception to RPC server<a name="line.710"></a>
+<span class="sourceLineNo">711</span>   * <a name="line.711"></a>
+<span class="sourceLineNo">712</span>   * RuntimeExceptions:<a name="line.712"></a>
+<span class="sourceLineNo">713</span>   * @throws InvalidPathException If path &lt;code&gt;dir&lt;/code&gt; is not valid<a name="line.713"></a>
+<span class="sourceLineNo">714</span>   */<a name="line.714"></a>
+<span class="sourceLineNo">715</span>  public void mkdir(final Path dir, final FsPermission permission,<a name="line.715"></a>
+<span class="sourceLineNo">716</span>      final boolean createParent) throws AccessControlException,<a name="line.716"></a>
+<span class="sourceLineNo">717</span>      FileAlreadyExistsException, FileNotFoundException,<a name="line.717"></a>
+<span class="sourceLineNo">718</span>      ParentNotDirectoryException, UnsupportedFileSystemException, <a name="line.718"></a>
+<span class="sourceLineNo">719</span>      IOException {<a name="line.719"></a>
+<span class="sourceLineNo">720</span>    final Path absDir = fixRelativePart(dir);<a name="line.720"></a>
+<span class="sourceLineNo">721</span>    final FsPermission absFerms = FsCreateModes.applyUMask(<a name="line.721"></a>
+<span class="sourceLineNo">722</span>        permission == null ?<a name="line.722"></a>
+<span class="sourceLineNo">723</span>            FsPermission.getDirDefault() : permission, getUMask());<a name="line.723"></a>
 <span class="sourceLineNo">724</span>    new FSLinkResolver&lt;Void&gt;() {<a name="line.724"></a>
 <span class="sourceLineNo">725</span>      @Override<a name="line.725"></a>
 <span class="sourceLineNo">726</span>      public Void next(final AbstractFileSystem fs, final Path p) <a name="line.726"></a>
@@ -2723,7 +2723,7 @@
 <span class="sourceLineNo">2715</span>  /**<a name="line.2715"></a>
 <span class="sourceLineNo">2716</span>   * Query the effective storage policy ID for the given file or directory.<a name="line.2716"></a>
 <span class="sourceLineNo">2717</span>   *<a name="line.2717"></a>
-<span class="sourceLineNo">2718</span>   * @param src file or directory path.<a name="line.2718"></a>
+<span class="sourceLineNo">2718</span>   * @param path file or directory path.<a name="line.2718"></a>
 <span class="sourceLineNo">2719</span>   * @return storage policy for give file.<a name="line.2719"></a>
 <span class="sourceLineNo">2720</span>   * @throws IOException<a name="line.2720"></a>
 <span class="sourceLineNo">2721</span>   */<a name="line.2721"></a>
